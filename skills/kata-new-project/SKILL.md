@@ -2,8 +2,7 @@
 name: kata-new-project
 description: Initialize a new project with deep context gathering and project.md. Triggers include "new project", "start project", "initialize project", "create project", "begin project", "setup project".
 metadata:
-  version: "0.1.0"
-allowed-tools: Read Bash Write Task AskUserQuestion
+  version: "1.6.1"
 ---
 <objective>
 
@@ -93,6 +92,22 @@ Exit command.
 
 
 **Open the conversation:**
+
+Use AskUserQuestion:
+
+- header: "Getting Started"
+- question: "How would you like to begin?"
+- options:
+  - "I know what I want to build" — Jump into describing your project
+  - "Brainstorm first" — Run explorer/challenger brainstorm session to explore ideas
+
+**If "Brainstorm first":**
+
+Display "Launching brainstorm session..." and run `/kata-brainstorm`. After brainstorm completes, continue to questioning below.
+
+**If "I know what I want to build":** Continue to questioning below.
+
+**Questioning:**
 
 Ask inline (freeform, NOT AskUserQuestion):
 

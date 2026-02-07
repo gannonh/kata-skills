@@ -2,8 +2,7 @@
 name: kata-review-pull-requests
 description: Run a comprehensive pull request review using multiple specialized agents. Each agent focuses on a different aspect of code quality, such as comments, tests, error handling, type design, and general code review. The skill aggregates results and provides a clear action plan for improvements. Triggers include "review PR", "analyze pull request", "code review", and "PR quality check".
 metadata:
-  version: "0.1.0"
-allowed-tools: Bash Glob Grep Read Task
+  version: "1.6.1"
 ---
 # Comprehensive PR Review
 
@@ -107,95 +106,3 @@ Run a comprehensive pull request review using multiple specialized agents, each 
    4. Re-run review after fixes
    ```
 
-## Usage Examples:
-
-**Full review (default):**
-```
-/kata-review-pull-requests
-```
-
-**Specific aspects:**
-```
-/kata-review-pull-requests tests errors
-# Reviews only test coverage and error handling
-
-/kata-review-pull-requests comments
-# Reviews only code comments
-
-/kata-review-pull-requests simplify
-# Simplifies code after passing review
-```
-
-**Parallel review:**
-```
-/kata-review-pull-requests all parallel
-# Launches all agents in parallel
-```
-
-## Agent Descriptions:
-
-**kata-comment-analyzer**:
-- Verifies comment accuracy vs code
-- Identifies comment rot
-- Checks documentation completeness
-
-**kata-pr-test-analyzer**:
-- Reviews behavioral test coverage
-- Identifies critical gaps
-- Evaluates test quality
-
-**kata-failure-finder**:
-- Finds silent failures
-- Reviews catch blocks
-- Checks error logging
-
-**kata-type-design-analyzer**:
-- Analyzes type encapsulation
-- Reviews invariant expression
-- Rates type design quality
-
-**kata-code-reviewer**:
-- Checks CLAUDE.md compliance
-- Detects bugs and issues
-- Reviews general code quality
-
-**kata-code-simplifier**:
-- Simplifies complex code
-- Improves clarity and readability
-- Applies project standards
-- Preserves functionality
-
-## Tips:
-
-- **Run early**: Before creating PR, not after
-- **Focus on changes**: Agents analyze git diff by default
-- **Address critical first**: Fix high-priority issues before lower priority
-- **Re-run after fixes**: Verify issues are resolved
-- **Use specific reviews**: Target specific aspects when you know the concern
-
-## Workflow Integration:
-
-**Before committing:**
-```
-1. Write code
-2. Run: /kata-review-pull-requests code errors
-3. Fix any critical issues
-4. Commit
-```
-
-**Before creating PR:**
-```
-1. Stage all changes
-2. Run: /kata-review-pull-requests all
-3. Address all critical and important issues
-4. Run specific reviews again to verify
-5. Create PR
-```
-
-**After PR feedback:**
-```
-1. Make requested changes
-2. Run targeted reviews based on feedback
-3. Verify issues are resolved
-4. Push updates
-```

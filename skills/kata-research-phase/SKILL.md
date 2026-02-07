@@ -2,8 +2,7 @@
 name: kata-research-phase
 description: Research how to implement a phase standalone, investigating implementation approaches before planning, or re-researching after planning is complete. Triggers include "research phase", "investigate phase", "how to implement", "research implementation", and "phase research".
 metadata:
-  version: "0.1.0"
-allowed-tools: Read Write Bash
+  version: "1.6.1"
 ---
 <objective>
 Research how to implement a phase. Spawns kata-phase-researcher agent with phase context.
@@ -176,7 +175,11 @@ Task(
 
 ## 5. Handle Agent Return
 
-**`## RESEARCH COMPLETE`:** Display summary, offer: Plan phase, Dig deeper, Review full, Done.
+**`## RESEARCH COMPLETE`:** Display summary.
+
+**Next steps:** Offer: Plan phase, Dig deeper, Brainstorm ideas, Review full, Done.
+
+- **"Brainstorm ideas":** Run `/kata-brainstorm` to explore ideas based on research findings. After brainstorm completes, return to this menu.
 
 **`## CHECKPOINT REACHED`:** Present to user, get response, spawn continuation.
 

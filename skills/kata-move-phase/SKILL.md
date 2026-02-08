@@ -59,6 +59,35 @@ Exit.
 Store: PHASE_NUM, OPERATION (move|reorder), and either TARGET_MILESTONE or POSITION+TARGET_POSITION.
 </step>
 
+<step name="preflight_roadmap_format">
+**Pre-flight: Check roadmap format (auto-migration)**
+
+If ROADMAP.md exists, check format and auto-migrate if old:
+
+```bash
+if [ -f .planning/ROADMAP.md ]; then
+  bash "${SKILL_BASE_DIR}/../kata-doctor/scripts/check-roadmap-format.sh" 2>/dev/null
+  FORMAT_EXIT=$?
+  
+  if [ $FORMAT_EXIT -eq 1 ]; then
+    echo "Old roadmap format detected. Running auto-migration..."
+  fi
+fi
+```
+
+**If exit code 1 (old format):**
+
+Invoke kata-doctor in auto mode:
+
+```
+Skill("kata-doctor", "--auto")
+```
+
+Continue after migration completes.
+
+**If exit code 0 or 2:** Continue silently.
+</step>
+
 <step name="load_state">
 Load project state:
 
@@ -67,7 +96,10 @@ cat .planning/STATE.md 2>/dev/null
 cat .planning/ROADMAP.md 2>/dev/null
 ```
 
-Parse current milestone version from ROADMAP.md (the milestone marked "In Progress").
+Parse current milestone version from ROADMAP.md. Use the "Current Milestone:" heading or `🔄` line marker:
+```bash
+VERSION=$(grep -E "Current Milestone:|🔄" .planning/ROADMAP.md | grep -oE 'v[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1 | tr -d 'v')
+```
 </step>
 
 <step name="validate_phase_exists">

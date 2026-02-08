@@ -32,6 +32,33 @@ Normalize phase input in step 2 before any directory lookups.
 
 <process>
 
+## 0. Pre-flight: Check roadmap format (auto-migration)
+
+If ROADMAP.md exists, check format and auto-migrate if old:
+
+```bash
+if [ -f .planning/ROADMAP.md ]; then
+  bash "${SKILL_BASE_DIR}/../kata-doctor/scripts/check-roadmap-format.sh" 2>/dev/null
+  FORMAT_EXIT=$?
+  
+  if [ $FORMAT_EXIT -eq 1 ]; then
+    echo "Old roadmap format detected. Running auto-migration..."
+  fi
+fi
+```
+
+**If exit code 1 (old format):**
+
+Invoke kata-doctor in auto mode:
+
+```
+Skill("kata-doctor", "--auto")
+```
+
+Continue after migration completes.
+
+**If exit code 0 or 2:** Continue silently.
+
 ## 1. Validate Environment and Resolve Model Profile
 
 ```bash
@@ -112,7 +139,7 @@ if [ "$MATCH_COUNT" -gt 1 ]; then
 fi
 ```
 
-**If COLLISION detected (MATCH_COUNT > 1):** STOP planning. Invoke `/kata-migrate-phases` to renumber phases to globally sequential numbering. After migration completes, re-invoke `/kata-plan-phase` with the migrated phase number. Do NOT continue with ambiguous phase directories.
+**If COLLISION detected (MATCH_COUNT > 1):** STOP planning. Invoke `/kata-doctor` to renumber phases to globally sequential numbering. After migration completes, re-invoke `/kata-plan-phase` with the migrated phase number. Do NOT continue with ambiguous phase directories.
 
 ```bash
 find "${PHASE_DIR}" -maxdepth 1 -name "*-RESEARCH.md" 2>/dev/null
@@ -126,6 +153,47 @@ grep -A5 "Phase ${PHASE}:" .planning/ROADMAP.md 2>/dev/null
 ```
 
 **If not found:** Error with available phases. **If found:** Extract phase number, name, description.
+
+## 3.5. Check-or-Ask Model Profile
+
+Check if model_profile has been set in config:
+
+```bash
+KATA_SCRIPTS="${SKILL_BASE_DIR}/../kata-configure-settings/scripts"
+MODEL_PROFILE_SET=$(cat .planning/config.json 2>/dev/null | grep -o '"model_profile"' | head -1)
+```
+
+**If model_profile is absent (empty MODEL_PROFILE_SET):**
+
+This is the first plan-phase run. Ask the user for model_profile.
+
+Use AskUserQuestion:
+- header: "Model Profile"
+- question: "Which AI models for planning agents?"
+- options:
+  - "Balanced (Recommended)" — Sonnet for most agents — good quality/cost ratio
+  - "Quality" — Opus for research/roadmap — higher cost, deeper analysis
+  - "Budget" — Haiku where possible — fastest, lowest cost
+
+After user responds, write to config:
+
+```bash
+# Map selection to value
+# Balanced -> balanced, Quality -> quality, Budget -> budget
+bash "${KATA_SCRIPTS}/set-config.sh" "model_profile" "$CHOSEN_PROFILE"
+```
+
+Display first-run agent defaults notice:
+
+```
++--------------------------------------------------+
+| Agent defaults active: Research, Plan Check,     |
+| Verification. Run /kata-configure-settings to    |
+| customize agent preferences.                     |
++--------------------------------------------------+
+```
+
+**If model_profile exists:** No-op. Continue to step 4.
 
 ## 4. Ensure Phase Directory Exists
 
@@ -282,6 +350,16 @@ Read and store context file contents for the planner agent. The `@` syntax does 
 - `references/phase-researcher-instructions.md` (relative to skill base directory) — store as `phase_researcher_instructions_content`
 - `references/plan-checker-instructions.md` (relative to skill base directory) — store as `plan_checker_instructions_content`
 
+**Resolve plan template (project override -> plugin default):**
+
+```bash
+RESOLVE_SCRIPT="${SKILL_BASE_DIR}/../kata-execute-phase/scripts/resolve-template.sh"
+PLAN_TEMPLATE_PATH=$(bash "$RESOLVE_SCRIPT" "plan-template.md")
+PLAN_TEMPLATE_CONTENT=$(cat "$PLAN_TEMPLATE_PATH")
+```
+
+Store `PLAN_TEMPLATE_CONTENT` for use in the Step 8 planner prompt.
+
 **Read latest brainstorm SUMMARY.md (if exists):**
 
 ```bash
@@ -400,6 +478,10 @@ Fill prompt with inlined content and spawn:
 {uat_content}
 
 </planning_context>
+
+<plan_template>
+{plan_template_content}
+</plan_template>
 
 <downstream_consumer>
 Output consumed by /kata-execute-phase
@@ -593,10 +675,8 @@ ISSUE_MODE=$(cat .planning/config.json 2>/dev/null | grep -o '"issueMode"[[:spac
 **If enabled, find phase issue:**
 
 ```bash
-# Get milestone version from ROADMAP.md (the one marked "In Progress")
-VERSION=$(grep -E "^### v[0-9]+\.[0-9]+.*\(In Progress\)" .planning/ROADMAP.md | grep -oE "v[0-9]+\.[0-9]+(\.[0-9]+)?" | head -1 | tr -d 'v' || echo "")
-# Fallback: try to find any version if no "In Progress" found
-[ -z "$VERSION" ] && VERSION=$(grep -oE 'v[0-9]+\.[0-9]+(\.[0-9]+)?' .planning/ROADMAP.md | head -1 | tr -d 'v' || echo "")
+# Get milestone version from ROADMAP.md (the one marked current/in-progress)
+VERSION=$(grep -E "Current Milestone:|🔄" .planning/ROADMAP.md | grep -oE 'v[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1 | tr -d 'v' || echo "")
 
 if [ -z "$VERSION" ]; then
   echo "Warning: Could not determine milestone version. Skipping GitHub issue update."
@@ -604,12 +684,14 @@ if [ -z "$VERSION" ]; then
 fi
 
 # Find phase issue number
-ISSUE_NUMBER=$(gh issue list \
-  --label "phase" \
-  --milestone "v${VERSION}" \
-  --json number,title \
-  --jq ".[] | select(.title | startswith(\"Phase ${PHASE}:\")) | .number" \
-  2>/dev/null)
+# gh issue list --milestone only searches open milestones; use API to include closed
+REPO_SLUG=$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null)
+MS_NUM=$(gh api "repos/${REPO_SLUG}/milestones?state=all" --jq ".[] | select(.title==\"v${VERSION}\") | .number" 2>/dev/null)
+ISSUE_NUMBER=""
+if [ -n "$MS_NUM" ]; then
+  ISSUE_NUMBER=$(gh api "repos/${REPO_SLUG}/issues?milestone=${MS_NUM}&state=open&labels=phase&per_page=100" \
+    --jq "[.[] | select(.title | startswith(\"Phase ${PHASE}:\"))][0].number" 2>/dev/null)
+fi
 
 if [ -z "$ISSUE_NUMBER" ]; then
   echo "Warning: Could not find GitHub Issue for Phase ${PHASE}. Skipping checklist update."

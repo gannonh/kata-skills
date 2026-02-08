@@ -19,16 +19,17 @@ npx skills add gannonh/kata-skills
 | kata-brainstorm | Run structured brainstorming sessions using paired explorer/challenger agent teams. Explorers generate ideas, challengers play devil's advocate, and 2-3 rounds of debate produce pressure-tested proposals. Use when brainstorming product ideas, exploring feature directions, evaluating strategic options, generating milestone candidates, or when the user says "brainstorm", "explore ideas", "what should we build next", "generate options", or "run an ideation session". |
 | kata-check-issues | Review open issues, selecting an issue to work on, filtering issues by area, pulling GitHub issues, or deciding what to work on next. |
 | kata-complete-milestone | Archive a completed milestone, preparing for the next version, marking a milestone complete, shipping a version, or wrapping up milestone work. |
-| kata-configure-settings | Configure kata workflow toggles and model profile. |
+| kata-configure-settings | Configure kata preferences, session settings, and workflow variants. |
 | kata-debug | Systematically debug issues, investigating bugs, troubleshooting problems, or tracking down errors with persistent state across context resets. |
 | kata-discuss-phase | Gather phase context through adaptive questioning before planning, clarifying implementation decisions, or exploring gray areas for a phase. |
+| kata-doctor | Run health checks on Kata project structure, detecting and fixing format issues. |
 | kata-execute-phase | Execute all plans in a phase with wave-based parallelization, running phase execution, or completing phase work. |
 | kata-execute-quick-task | Execute small ad-hoc tasks with Kata guarantees, running quick tasks without full planning, or handling one-off work outside the roadmap. |
 | kata-help | Show available Kata skills, displaying the usage guide, explaining skill reference, or when the user asks for help with Kata. |
 | kata-insert-phase | Insert urgent work as a decimal phase between existing phases, adding mid-milestone work, or creating intermediate phases. |
 | kata-list-phase-assumptions | Surface Claude's assumptions about a phase approach before planning, checking what Claude thinks, or validating understanding before planning. |
 | kata-map-codebase | Analyze an existing codebase with parallel mapper agents, creating codebase documentation, understanding brownfield projects, or mapping code structure. |
-| kata-migrate-phases | Migrate phase directories to globally sequential numbering, fixing duplicate numeric prefixes across milestones. |
+| kata-migrate-phases | [DEPRECATED] Use /kata-doctor instead. Migrate phase directories to globally sequential numbering. |
 | kata-move-phase | Move a phase between milestones or reorder phases within a milestone. |
 | kata-new-project | Initialize a new project with deep context gathering and project.md. |
 | kata-pause-work | Create a context handoff file, pausing work mid-phase, stopping work temporarily, or creating a checkpoint for session resumption. |

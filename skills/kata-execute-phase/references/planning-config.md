@@ -10,16 +10,12 @@ Configuration options for Kata projects in `.planning/config.json`.
 {
   "mode": "yolo|interactive",
   "depth": "quick|standard|comprehensive",
-  "parallelization": true|false,
   "model_profile": "quality|balanced|budget",
   "commit_docs": true|false,
   "pr_workflow": true|false,
   "github": {
     "enabled": true|false,
     "issueMode": "auto|ask|never"
-  },
-  "display": {
-    "statusline": true|false
   },
   "workflow": {
     "research": true|false,
@@ -33,13 +29,11 @@ Configuration options for Kata projects in `.planning/config.json`.
 | --------------------- | ---------- | -------------------------------------------------------------- |
 | `mode`                | `yolo`     | `yolo` = auto-approve, `interactive` = confirm at each step    |
 | `depth`               | `standard` | `quick` (3-5 phases), `standard` (5-8), `comprehensive` (8-12) |
-| `parallelization`     | `true`     | Run independent plans simultaneously                           |
 | `model_profile`       | `balanced` | Which AI models for agents (see model-profiles.md)             |
 | `commit_docs`         | `true`     | Whether to commit planning artifacts to git                    |
 | `pr_workflow`         | `true`     | Use PR-based release workflow vs direct commits                |
 | `github.enabled`      | `false`    | Create GitHub Milestones/Issues when true                      |
 | `github.issueMode`    | `never`    | Issue creation mode: `auto`, `ask`, `never`                    |
-| `display.statusline`  | `true`     | Enable Kata custom statusline in Claude Code                   |
 | `workflow.research`   | `true`     | Spawn researcher before planning each phase                    |
 | `workflow.plan_check` | `true`     | Verify plans achieve phase goals before execution              |
 | `workflow.verifier`   | `true`     | Confirm deliverables after phase execution                     |
@@ -364,33 +358,6 @@ VERIFIER=$(cat .planning/config.json 2>/dev/null | grep -o '"verifier"[[:space:]
 ```
 
 </workflow_agents>
-
-<display_settings>
-
-## Display Settings
-
-### `display.statusline` (default: `true`)
-
-Controls whether Kata's custom statusline is enabled in Claude Code.
-
-**When `true`:**
-- Shows current model, context usage %, and Kata update availability
-- Configures `.claude/settings.json` with statusLine hook
-- Copies `kata-statusline.js` to `.claude/hooks/`
-
-**When `false`:**
-- Uses Claude Code's default statusline
-- No `.claude/settings.json` modification
-
-**Note:** Statusline changes take effect on next Claude Code session start.
-
-**Checking the config:**
-
-```bash
-STATUSLINE=$(cat .planning/config.json 2>/dev/null | grep -o '"statusline"[[:space:]]*:[[:space:]]*[^,}]*' | grep -o 'true\|false' || echo "true")
-```
-
-</display_settings>
 
 <setup_uncommitted_mode>
 

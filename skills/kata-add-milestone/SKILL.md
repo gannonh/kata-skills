@@ -51,6 +51,33 @@ Milestone name: $ARGUMENTS (optional - will prompt if not provided)
 - Read STATE.md (pending todos, blockers)
 - Check for MILESTONE-CONTEXT.md (if exists)
 
+## Phase 1.2: Pre-flight Roadmap Format Check
+
+If ROADMAP.md exists, check format and auto-migrate if old:
+
+```bash
+if [ -f .planning/ROADMAP.md ]; then
+  bash "${SKILL_BASE_DIR}/../kata-doctor/scripts/check-roadmap-format.sh" 2>/dev/null
+  FORMAT_EXIT=$?
+  
+  if [ $FORMAT_EXIT -eq 1 ]; then
+    echo "Old roadmap format detected. Running auto-migration..."
+  fi
+fi
+```
+
+**If exit code 1 (old format):**
+
+Invoke kata-doctor in auto mode:
+
+```
+Skill("kata-doctor", "--auto")
+```
+
+Continue after migration completes.
+
+**If exit code 0 or 2:** Continue silently.
+
 ## Phase 1.5: Optional Brainstorm
 
 Use AskUserQuestion:
@@ -797,28 +824,29 @@ Use AskUserQuestion:
 - header: "Collisions"
 - question: "Duplicate phase prefixes found. Migrate to globally sequential numbering?"
 - options:
-  - "Migrate now" — Run inline migration, then recalculate NEXT_PHASE before continuing
+  - "Migrate now" — Run `/kata-doctor` to fix collisions, then recalculate NEXT_PHASE before continuing
   - "Skip" — Continue without fixing (phase lookups may return wrong results)
 
 **If "Migrate now":**
 
-Run the migration logic from `/kata-migrate-phases` inline:
+Run `/kata-doctor` to perform migration:
 
-1. Build chronology from ROADMAP.md (completed milestone `<details>` blocks + current milestone phases)
-2. Map directories to globally sequential numbers
-3. Execute two-pass rename (tmp- prefix, then final)
-4. Update ROADMAP.md current milestone phase numbers
-5. Recalculate `NEXT_PHASE` from the newly renumbered directories
+```
+Skill("kata-doctor")
+```
+
+After doctor completes, recalculate `NEXT_PHASE` from the newly renumbered directories.
 
 **If "Skip":**
 
 Display:
 
 ```
-⚠ Skipping migration. Run `/kata-migrate-phases` to fix collisions later.
+⚠ Skipping migration. Run `/kata-doctor` to fix collisions later.
 ```
 
 Continue to Phase 9.
+
 
 ## Phase 9: Create Roadmap
 
@@ -1037,8 +1065,8 @@ gh label create "phase" --color "0E8A16" --description "Kata phase tracking" --f
 **4. Get milestone number** (from Phase 5.5):
 
 ```bash
-# Extract VERSION from current milestone (the one marked "In Progress")
-VERSION=$(grep -E "^### v[0-9]+\.[0-9]+.*\(In Progress\)" .planning/ROADMAP.md | grep -oE "v[0-9]+\.[0-9]+(\.[0-9]+)?" | head -1 | tr -d 'v')
+# Extract VERSION from current milestone
+VERSION=$(grep -E "Current Milestone:|🔄" .planning/ROADMAP.md | grep -oE 'v[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1 | tr -d 'v')
 if [ -z "$VERSION" ]; then
   echo "Warning: Could not determine milestone version from ROADMAP.md. Skipping phase issue creation."
   exit 0
@@ -1065,8 +1093,8 @@ The ROADMAP.md structure uses:
 # Find the milestone section and extract phases
 ROADMAP_FILE=".planning/ROADMAP.md"
 
-# Extract VERSION from current milestone (the one marked "In Progress")
-VERSION=$(grep -E "^### v[0-9]+\.[0-9]+.*\(In Progress\)" "$ROADMAP_FILE" | grep -oE "v[0-9]+\.[0-9]+(\.[0-9]+)?" | head -1 | tr -d 'v')
+# Extract VERSION from current milestone
+VERSION=$(grep -E "Current Milestone:|🔄" "$ROADMAP_FILE" | grep -oE 'v[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1 | tr -d 'v')
 if [ -z "$VERSION" ]; then
   echo "Warning: Could not determine milestone version. Skipping phase issue creation."
   exit 0
@@ -1121,7 +1149,14 @@ echo "$PHASE_HEADERS" | while IFS= read -r phase_line; do
   # --- Issue creation code (step 6) ---
 
   # Check if issue already exists (idempotent)
-  EXISTING=$(gh issue list --label "phase" --milestone "v${VERSION}" --json number,title --jq ".[] | select(.title | startswith(\"Phase ${PHASE_NUM}:\")) | .number" 2>/dev/null)
+  # gh issue list --milestone only searches open milestones; use API to include closed
+  REPO_SLUG=$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null)
+  MS_NUM=$(gh api "repos/${REPO_SLUG}/milestones?state=all" --jq ".[] | select(.title==\"v${VERSION}\") | .number" 2>/dev/null)
+  EXISTING=""
+  if [ -n "$MS_NUM" ]; then
+    EXISTING=$(gh api "repos/${REPO_SLUG}/issues?milestone=${MS_NUM}&state=all&labels=phase&per_page=100" \
+      --jq "[.[] | select(.title | startswith(\"Phase ${PHASE_NUM}:\"))][0].number" 2>/dev/null)
+  fi
 
   if [ -n "$EXISTING" ]; then
     echo "Phase ${PHASE_NUM} issue already exists: #${EXISTING}"

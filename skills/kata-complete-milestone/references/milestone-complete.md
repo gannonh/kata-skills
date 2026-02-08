@@ -25,7 +25,7 @@ When a milestone completes, this workflow:
 
 1. Extracts full milestone details to `.planning/milestones/v[X.Y]-ROADMAP.md`
 2. Archives requirements to `.planning/milestones/v[X.Y]-REQUIREMENTS.md`
-3. Updates ROADMAP.md to replace milestone details with one-line summary
+3. Updates ROADMAP.md to "between milestones" state with `## Current Milestone: None`
 4. Deletes REQUIREMENTS.md (fresh one created for next milestone)
 5. Performs full PROJECT.md evolution review
 6. Offers to create next milestone inline
@@ -95,6 +95,22 @@ Proceed without creating branch.
 **GATE:** Do not proceed to verify_readiness until:
 - If pr_workflow=true: Current branch is release/vX.Y.Z (NOT main)
 - If pr_workflow=false: Any branch is acceptable
+
+</step>
+
+<step name="read_workflow_config">
+
+Read workflow config for milestone completion overrides:
+
+```bash
+VERSION_FILES_JSON=$(bash "${SKILL_BASE_DIR}/../kata-configure-settings/scripts/read-pref.sh" "workflows.complete-milestone.version_files" "[]")
+PRE_RELEASE_CMDS_JSON=$(bash "${SKILL_BASE_DIR}/../kata-configure-settings/scripts/read-pref.sh" "workflows.complete-milestone.pre_release_commands" "[]")
+```
+
+- `version_files` — JSON array of file paths. When non-empty, overrides version-detector.md auto-detection. When `[]`, falls back to auto-detection (existing behavior).
+- `pre_release_commands` — JSON array of shell commands. Run after version bump and before archive creation. Failures are blocking.
+
+Store both variables for use in `release_workflow` and `git_commit_milestone` steps.
 
 </step>
 
@@ -183,6 +199,16 @@ If "wait": Stop, user will return when ready.
 - Read @./version-detector.md for version detection functions
 - Read @./changelog-generator.md for changelog generation functions
 
+**Resolve changelog entry template (project override -> plugin default):**
+
+```bash
+RESOLVE_SCRIPT="${SKILL_BASE_DIR}/../kata-execute-phase/scripts/resolve-template.sh"
+CHANGELOG_TEMPLATE_PATH=$(bash "$RESOLVE_SCRIPT" "changelog-entry.md")
+CHANGELOG_TEMPLATE_CONTENT=$(cat "$CHANGELOG_TEMPLATE_PATH")
+```
+
+The resolved template content is available as `{changelog_template_content}` and should be used in place of the `@./changelog-entry.md` reference when constructing changelog generation prompts. If a project override exists at `.planning/templates/changelog-entry.md`, it takes precedence over the plugin default.
+
 **Workflow:**
 
 1. **Detect version bump (REL-02):**
@@ -268,8 +294,66 @@ If "wait": Stop, user will return when ready.
    ```
 
 4. **Apply changes (approval happens in SKILL.md step 0.1):**
-   Use update_versions from version-detector.md to bump all detected version files.
+
+   **Determine version files to update:**
+
+   Check `VERSION_FILES_JSON` from `read_workflow_config` step:
+
+   ```bash
+   VERSION_FILES_JSON="$VERSION_FILES_JSON" node -e "
+   const files = JSON.parse(process.env.VERSION_FILES_JSON);
+   if (files.length > 0) {
+     files.forEach(f => console.log(f));
+   }
+   " > /tmp/kata-version-files.txt
+
+   if [ -s /tmp/kata-version-files.txt ]; then
+     echo "Using configured version files (skipping auto-detection):"
+     cat /tmp/kata-version-files.txt
+     # Use these files instead of version-detector.md results
+   else
+     # Fall back to version-detector.md auto-detection (existing behavior)
+   fi
+   rm -f /tmp/kata-version-files.txt
+   ```
+
+   When `version_files` is configured, skip version-detector.md heuristics and use the explicit list. When empty, fall back to current auto-detection. This is an override, not a merge.
+
+   Use update_versions (from version-detector.md or the override list) to bump version files.
    Use insertion pattern from changelog-generator.md to prepend changelog entry.
+
+4.5. **Run pre-release commands (if configured):**
+
+   Check `PRE_RELEASE_CMDS_JSON` from `read_workflow_config` step:
+
+   ```bash
+   PRE_RELEASE_CMDS_JSON="$PRE_RELEASE_CMDS_JSON" node -e "
+   const cmds = JSON.parse(process.env.PRE_RELEASE_CMDS_JSON);
+   if (cmds.length === 0) { process.exit(0); }
+   cmds.forEach((cmd, i) => console.log('CMD_' + i + '=' + cmd));
+   " > /tmp/kata-pre-release-cmds.sh
+
+   if [ -s /tmp/kata-pre-release-cmds.sh ]; then
+     echo "Running pre-release commands:"
+     source /tmp/kata-pre-release-cmds.sh
+     i=0
+     while true; do
+       eval "CMD=\${CMD_${i}:-}"
+       [ -z "$CMD" ] && break
+       echo "  Running: $CMD"
+       eval "$CMD" 2>&1
+       if [ $? -ne 0 ]; then
+         echo "  Warning: Pre-release command failed: $CMD"
+         echo "  Stopping pre-release sequence."
+         break
+       fi
+       i=$((i + 1))
+     done
+     rm -f /tmp/kata-pre-release-cmds.sh
+   fi
+   ```
+
+   Pre-release command failures ARE blocking (unlike extra verification). If a pre-release command fails, stop and report. This protects against releasing with a broken build.
 
 5. **Check pr_workflow mode (REL-03):**
    ```bash
@@ -667,9 +751,45 @@ Extract completed milestone details and create archive file.
 
 6. Write filled template to `.planning/milestones/v[X.Y]-ROADMAP.md`
 
-7. Delete ROADMAP.md (fresh one created for next milestone):
-   ```bash
-   rm .planning/ROADMAP.md
+7. Update ROADMAP.md to "between milestones" state:
+
+   Read current ROADMAP.md to extract:
+   - Project name (from `# Roadmap:` heading)
+   - Overview section content
+   - All milestone entries from `## Milestones` list
+   - All `<details>` blocks from `## Completed Milestones` section
+   - Progress Summary table (if present)
+   - Footer timestamps
+
+   Write updated ROADMAP.md with:
+   ```markdown
+   # Roadmap: [Project Name]
+
+   ## Overview
+
+   [Preserved overview content]
+
+   ## Milestones
+
+   [All milestone entries with updated status for completed milestone]
+
+   ## Current Milestone: None
+
+   No active milestone. Use `/kata-add-milestone` to start planning the next version.
+
+   ## Completed Milestones
+
+   [All preserved <details> blocks]
+
+   ---
+
+   ## Progress Summary
+
+   [Preserved table if present]
+
+   ---
+   *Roadmap created: [original date]*
+   *Last updated: [today] — v[X.Y] [Milestone Name] shipped*
    ```
 
 8. Verify archive exists:
@@ -681,7 +801,7 @@ Extract completed milestone details and create archive file.
 
    ```
    ✅ v[X.Y] roadmap archived to milestones/v[X.Y]-ROADMAP.md
-   ✅ ROADMAP.md deleted (fresh one for next milestone)
+   ✅ ROADMAP.md updated to "between milestones" state
    ```
 
 **Note:** Phase directories (`.planning/phases/`) are NOT deleted. They accumulate across milestones as the raw execution history. Phase numbers are globally sequential across milestones (they never reset).
@@ -960,14 +1080,14 @@ Archived:
 - milestones/v[X.Y]-REQUIREMENTS.md
 - milestones/v[X.Y]-MILESTONE-AUDIT.md (if audit was run)
 
-Deleted (fresh for next milestone):
-- ROADMAP.md
-- REQUIREMENTS.md
-
 Updated:
+- ROADMAP.md (set to "between milestones" state)
 - MILESTONES.md (new entry)
 - PROJECT.md (requirements → Validated)
 - STATE.md (reset for next milestone)
+
+Deleted (fresh for next milestone):
+- REQUIREMENTS.md
 
 Tagged: v[X.Y]
 EOF
@@ -981,14 +1101,14 @@ Archived:
 - milestones/v[X.Y]-REQUIREMENTS.md
 - milestones/v[X.Y]-MILESTONE-AUDIT.md (if audit was run)
 
-Deleted (fresh for next milestone):
-- ROADMAP.md
-- REQUIREMENTS.md
-
 Updated:
+- ROADMAP.md (set to "between milestones" state)
 - MILESTONES.md (new entry)
 - PROJECT.md (requirements → Validated)
 - STATE.md (reset for next milestone)
+
+Deleted (fresh for next milestone):
+- REQUIREMENTS.md
 
 Tagged: v[X.Y]
 EOF
@@ -1077,13 +1197,13 @@ Milestone completion is successful when:
 - [ ] PROJECT.md full evolution review completed
 - [ ] All shipped requirements moved to Validated in PROJECT.md
 - [ ] Key Decisions updated with outcomes
-- [ ] ROADMAP.md reorganized with milestone grouping
+- [ ] ROADMAP.md updated to "between milestones" state with `## Current Milestone: None`
 - [ ] Roadmap archive created (milestones/v[X.Y]-ROADMAP.md)
 - [ ] Requirements archive created (milestones/v[X.Y]-REQUIREMENTS.md)
 - [ ] REQUIREMENTS.md deleted (fresh for next milestone)
 - [ ] STATE.md updated with fresh project reference
 - [ ] Git tag created (v[X.Y])
-- [ ] Milestone commit made (includes archive files and deletion)
+- [ ] Milestone commit made (includes archive files and ROADMAP.md update)
 - [ ] User knows next step (/kata-add-milestone)
 
 </success_criteria>

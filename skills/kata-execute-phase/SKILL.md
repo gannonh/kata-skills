@@ -41,6 +41,18 @@ MODEL_PROFILE=$(cat .planning/config.json 2>/dev/null | grep -o '"model_profile"
 
 Default to "balanced" if not set.
 
+0.5. **Read Workflow Config**
+
+Read workflow config for executor injection:
+
+```bash
+EXEC_POST_TASK_CMD=$(bash "${SKILL_BASE_DIR}/../kata-configure-settings/scripts/read-pref.sh" "workflows.execute-phase.post_task_command" "")
+EXEC_COMMIT_STYLE=$(bash "${SKILL_BASE_DIR}/../kata-configure-settings/scripts/read-pref.sh" "workflows.execute-phase.commit_style" "conventional")
+EXEC_COMMIT_SCOPE_FMT=$(bash "${SKILL_BASE_DIR}/../kata-configure-settings/scripts/read-pref.sh" "workflows.execute-phase.commit_scope_format" "{phase}-{plan}")
+```
+
+Store these three variables for injection into executor prompts in the `<wave_execution>` Task() calls.
+
 **Model lookup table:**
 
 | Agent                      | quality | balanced | budget |
@@ -54,7 +66,34 @@ _Note: Review agents (kata-code-reviewer, kata-_-analyzer) are spawned by the ka
 
 Store resolved models for use in Task calls below.
 
-1. **Validate phase exists**
+1. **Pre-flight: Check roadmap format (auto-migration)**
+
+   If ROADMAP.md exists, check format and auto-migrate if old:
+
+   ```bash
+   if [ -f .planning/ROADMAP.md ]; then
+     bash "${SKILL_BASE_DIR}/../kata-doctor/scripts/check-roadmap-format.sh" 2>/dev/null
+     FORMAT_EXIT=$?
+     
+     if [ $FORMAT_EXIT -eq 1 ]; then
+       echo "Old roadmap format detected. Running auto-migration..."
+     fi
+   fi
+   ```
+
+   **If exit code 1 (old format):**
+
+   Invoke kata-doctor in auto mode:
+
+   ```
+   Skill("kata-doctor", "--auto")
+   ```
+
+   Continue after migration completes.
+
+   **If exit code 0 or 2:** Continue silently.
+
+1.1. **Validate phase exists**
    Find phase directory using the discovery script:
    ```bash
    bash "${SKILL_BASE_DIR}/scripts/find-phase.sh" "$PHASE_ARG"
@@ -89,7 +128,7 @@ PR_WORKFLOW=$(cat .planning/config.json 2>/dev/null | grep -o '"pr_workflow"[[:s
 
 1.  Get milestone version from ROADMAP.md:
     ```bash
-    MILESTONE=$(grep -oE 'v[0-9]+\.[0-9]+(\.[0-9]+)?' .planning/ROADMAP.md | head -1 | tr -d 'v')
+    MILESTONE=$(grep -E "Current Milestone:|🔄" .planning/ROADMAP.md | grep -oE 'v[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1 | tr -d 'v')
     ```
 2.  Get phase number and slug from PHASE_DIR:
     ```bash
@@ -187,13 +226,15 @@ Kata ► EXECUTING PHASE {X}: {Phase Name}
      1. Find phase issue number:
 
      ```bash
-     VERSION=$(grep -oE 'v[0-9]+\.[0-9]+(\.[0-9]+)?' .planning/ROADMAP.md | head -1 | tr -d 'v')
-     ISSUE_NUMBER=$(gh issue list \
-       --label "phase" \
-       --milestone "v${VERSION}" \
-       --json number,title \
-       --jq ".[] | select(.title | startswith(\"Phase ${PHASE}:\")) | .number" \
-       2>/dev/null)
+     VERSION=$(grep -E "Current Milestone:|🔄" .planning/ROADMAP.md | grep -oE 'v[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1 | tr -d 'v')
+     # gh issue list --milestone only searches open milestones; use API to include closed
+     REPO_SLUG=$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null)
+     MS_NUM=$(gh api "repos/${REPO_SLUG}/milestones?state=all" --jq ".[] | select(.title==\"v${VERSION}\") | .number" 2>/dev/null)
+     ISSUE_NUMBER=""
+     if [ -n "$MS_NUM" ]; then
+       ISSUE_NUMBER=$(gh api "repos/${REPO_SLUG}/issues?milestone=${MS_NUM}&state=open&labels=phase&per_page=100" \
+         --jq "[.[] | select(.title | startswith(\"Phase ${PHASE}:\"))][0].number" 2>/dev/null)
+     fi
      ```
 
      If issue not found: Warn and skip (non-blocking).
@@ -234,8 +275,7 @@ Kata ► EXECUTING PHASE {X}: {Phase Name}
      PR_WORKFLOW=$(cat .planning/config.json 2>/dev/null | grep -o '"pr_workflow"[[:space:]]*:[[:space:]]*[^,}]*' | grep -o 'true\|false' || echo "false")
      GITHUB_ENABLED=$(cat .planning/config.json 2>/dev/null | grep -o '"enabled"[[:space:]]*:[[:space:]]*[^,}]*' | head -1 | grep -o 'true\|false' || echo "false")
      ISSUE_MODE=$(cat .planning/config.json 2>/dev/null | grep -o '"issueMode"[[:space:]]*:[[:space:]]*"[^"]*"' | grep -o '"[^"]*"$' | tr -d '"' || echo "never")
-     MILESTONE=$(grep -E "^\- \[.\] \*\*Phase|^### v" .planning/ROADMAP.md | grep -E "In Progress" | grep -oE "v[0-9]+\.[0-9]+(\.[0-9]+)?" | head -1 | tr -d 'v')
-     [ -z "$MILESTONE" ] && MILESTONE=$(grep -oE 'v[0-9]+\.[0-9]+(\.[0-9]+)?' .planning/ROADMAP.md | head -1 | tr -d 'v')
+     MILESTONE=$(grep -E "Current Milestone:|🔄" .planning/ROADMAP.md | grep -oE 'v[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1 | tr -d 'v')
      # PHASE_DIR already set by universal discovery in step 1
      PHASE_NUM=$(basename "$PHASE_DIR" | sed -E 's/^([0-9]+)-.*/\1/')
      BRANCH=$(git branch --show-current)
@@ -259,8 +299,13 @@ Kata ► EXECUTING PHASE {X}: {Phase Name}
          # Get phase issue number for linking (if github.enabled)
          CLOSES_LINE=""
          if [ "$GITHUB_ENABLED" = "true" ] && [ "$ISSUE_MODE" != "never" ]; then
-           PHASE_ISSUE=$(gh issue list --label phase --milestone "v${MILESTONE}" \
-             --json number,title --jq ".[] | select(.title | startswith(\"Phase ${PHASE_NUM}:\")) | .number" 2>/dev/null)
+           # gh issue list --milestone only searches open milestones; use API to include closed
+           REPO_SLUG=$(gh repo view --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null)
+           MS_NUM=$(gh api "repos/${REPO_SLUG}/milestones?state=all" --jq ".[] | select(.title==\"v${MILESTONE}\") | .number" 2>/dev/null)
+           if [ -n "$MS_NUM" ]; then
+             PHASE_ISSUE=$(gh api "repos/${REPO_SLUG}/issues?milestone=${MS_NUM}&state=open&labels=phase&per_page=100" \
+               --jq "[.[] | select(.title | startswith(\"Phase ${PHASE_NUM}:\"))][0].number" 2>/dev/null)
+           fi
            [ -n "$PHASE_ISSUE" ] && CLOSES_LINE="Closes #${PHASE_ISSUE}"
            # Store PHASE_ISSUE for use in step 10.6 merge path
          fi
@@ -475,12 +520,12 @@ fi
     **Note:** Show "Merge PR" option only if `pr_workflow=true` AND PR exists AND not already merged.
 
     **If user chooses "Run UAT":**
-    1. Invoke skill: `Skill("kata:kata-verify-work", "{phase}")`
+    1. Invoke skill: `Skill("kata-verify-work", "{phase}")`
     2. UAT skill handles the walkthrough and any issues found
     3. After UAT completes, return to this step to ask again (user may want PR review or merge)
 
     **If user chooses "Run PR review":**
-    4. Invoke skill: `Skill("kata:kata-review-pull-requests")`
+    4. Invoke skill: `Skill("kata-review-pull-requests")`
     5. Display review summary with counts: {N} critical, {M} important, {P} suggestions
     6. **STOP and ask what to do with findings** (see step 10.7)
     7. After findings handled, return to this step
@@ -707,9 +752,9 @@ Before spawning, read file contents using Read tool. The `@` syntax does not wor
 Spawn all plans in a wave with a single message containing multiple Task calls, with inlined content:
 
 ```
-Task(prompt="<agent-instructions>\n{executor_instructions_content}\n</agent-instructions>\n\nExecute plan at {plan_01_path}\n\n<plan>\n{plan_01_content}\n</plan>\n\n<project_state>\n{state_content}\n</project_state>", subagent_type="general-purpose", model="{executor_model}")
-Task(prompt="<agent-instructions>\n{executor_instructions_content}\n</agent-instructions>\n\nExecute plan at {plan_02_path}\n\n<plan>\n{plan_02_content}\n</plan>\n\n<project_state>\n{state_content}\n</project_state>", subagent_type="general-purpose", model="{executor_model}")
-Task(prompt="<agent-instructions>\n{executor_instructions_content}\n</agent-instructions>\n\nExecute plan at {plan_03_path}\n\n<plan>\n{plan_03_content}\n</plan>\n\n<project_state>\n{state_content}\n</project_state>", subagent_type="general-purpose", model="{executor_model}")
+Task(prompt="<agent-instructions>\n{executor_instructions_content}\n</agent-instructions>\n\nExecute plan at {plan_01_path}\n\n<plan>\n{plan_01_content}\n</plan>\n\n<project_state>\n{state_content}\n</project_state>\n\n<workflow_config>\npost_task_command: {EXEC_POST_TASK_CMD}\ncommit_style: {EXEC_COMMIT_STYLE}\ncommit_scope_format: {EXEC_COMMIT_SCOPE_FMT}\n</workflow_config>", subagent_type="general-purpose", model="{executor_model}")
+Task(prompt="<agent-instructions>\n{executor_instructions_content}\n</agent-instructions>\n\nExecute plan at {plan_02_path}\n\n<plan>\n{plan_02_content}\n</plan>\n\n<project_state>\n{state_content}\n</project_state>\n\n<workflow_config>\npost_task_command: {EXEC_POST_TASK_CMD}\ncommit_style: {EXEC_COMMIT_STYLE}\ncommit_scope_format: {EXEC_COMMIT_SCOPE_FMT}\n</workflow_config>", subagent_type="general-purpose", model="{executor_model}")
+Task(prompt="<agent-instructions>\n{executor_instructions_content}\n</agent-instructions>\n\nExecute plan at {plan_03_path}\n\n<plan>\n{plan_03_content}\n</plan>\n\n<project_state>\n{state_content}\n</project_state>\n\n<workflow_config>\npost_task_command: {EXEC_POST_TASK_CMD}\ncommit_style: {EXEC_COMMIT_STYLE}\ncommit_scope_format: {EXEC_COMMIT_SCOPE_FMT}\n</workflow_config>", subagent_type="general-purpose", model="{executor_model}")
 ```
 
 All three run in parallel. Task tool blocks until all complete.

@@ -20,6 +20,7 @@ npx skills add gannonh/kata-skills
 | kata-check-issues | Review open issues, selecting an issue to work on, filtering issues by area, pulling GitHub issues, or deciding what to work on next. |
 | kata-complete-milestone | Archive a completed milestone, preparing for the next version, marking a milestone complete, shipping a version, or wrapping up milestone work. |
 | kata-configure-settings | Configure kata preferences, session settings, and workflow variants. |
+| kata-customize | Manage template overrides for customizing Kata output formats. List available templates, copy defaults for local editing, edit overrides, validate template schemas. |
 | kata-debug | Systematically debug issues, investigating bugs, troubleshooting problems, or tracking down errors with persistent state across context resets. |
 | kata-discuss-phase | Gather phase context through adaptive questioning before planning, clarifying implementation decisions, or exploring gray areas for a phase. |
 | kata-doctor | Run health checks on Kata project structure, detecting and fixing format issues. |

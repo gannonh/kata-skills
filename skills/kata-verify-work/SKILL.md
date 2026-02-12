@@ -4,6 +4,7 @@ description: Validate built features through conversational testing, running UAT
 metadata:
   version: "1.6.1"
 ---
+
 <objective>
 Validate built features through conversational testing with persistent state.
 
@@ -14,7 +15,6 @@ Output: {phase}-UAT.md tracking all test results. If issues found: diagnosed gap
 
 <execution_context>
 @./references/verify-work.md
-@./references/UAT-template.md
 </execution_context>
 
 <context>
@@ -39,6 +39,19 @@ If warnings are printed, relay them to the user before proceeding with verificat
 </pre_flight>
 
 <process>
+
+**Script invocation rule.** Code blocks reference scripts with paths relative to this SKILL.md (e.g., `"../kata-configure-settings/scripts/read-config.sh"`). Resolve these to absolute paths. Run scripts from the project directory (where `.planning/` lives). If you must run from a different directory, pass the project root via environment variable: `KATA_PROJECT_ROOT=/path/to/project bash "/path/to/script.sh" args`.
+
+0. **Resolve UAT template (project override -> plugin default):**
+
+```bash
+RESOLVE_SCRIPT="../kata-execute-phase/scripts/resolve-template.sh"
+UAT_TEMPLATE_PATH=$(bash "$RESOLVE_SCRIPT" "UAT-template.md")
+UAT_TEMPLATE_CONTENT=$(cat "$UAT_TEMPLATE_PATH")
+```
+
+Use `UAT_TEMPLATE_CONTENT` as the format specification when creating or updating UAT.md files.
+
 1. Check for active UAT sessions (resume or start new)
 2. Find SUMMARY.md files for the phase
 3. Extract testable deliverables (user-observable outcomes)
@@ -49,24 +62,26 @@ If warnings are printed, relay them to the user before proceeding with verificat
    - "yes/y/next" = pass, anything else = issue (severity inferred)
 6. Update UAT.md after each response
 7. On completion: commit UAT.md
-7.1. Run extra verification commands (if configured in workflows.verify-work)
-7.5. Finalize changes (pr_workflow only) — commit fixes, push, mark PR ready
-7.6. Run PR review (pr_workflow only, optional) — offer automated review
-7.7. Handle review findings — fix issues or add to backlog
+   7.1. Run extra verification commands (if configured in workflows.verify-work)
+   7.5. Finalize changes (pr_workflow only) — commit fixes, push, mark PR ready
+   7.6. Run PR review (pr_workflow only, optional) — offer automated review
+   7.7. Handle review findings — fix issues or add to backlog
 8. If issues found:
    - Spawn parallel debug agents to diagnose root causes
    - Spawn kata-planner in --gaps mode to create fix plans
    - Spawn kata-plan-checker to verify fix plans
    - Iterate planner ↔ checker until plans pass (max 3)
    - Present ready status with `/clear` then `/kata-execute-phase`
-</process>
+     </process>
 
 <step_7_5_pr_workflow>
+
 ## 7.5. Finalize Changes (pr_workflow only)
 
 Read pr_workflow config:
+
 ```bash
-PR_WORKFLOW=$(cat .planning/config.json 2>/dev/null | grep -o '"pr_workflow"[[:space:]]*:[[:space:]]*[^,}]*' | grep -o 'true\|false' || echo "false")
+PR_WORKFLOW=$(bash "../kata-configure-settings/scripts/read-config.sh" "pr_workflow" "false")
 ```
 
 **If PR_WORKFLOW=false:** Skip to offer_next.
@@ -74,23 +89,27 @@ PR_WORKFLOW=$(cat .planning/config.json 2>/dev/null | grep -o '"pr_workflow"[[:s
 **If PR_WORKFLOW=true:**
 
 1. Check for uncommitted changes:
+
    ```bash
    git status --porcelain
    ```
 
 2. If changes exist, stage and commit them:
+
    ```bash
    git add -u
    git commit -m "fix({phase}): UAT fixes"
    ```
 
 3. Push to branch:
+
    ```bash
    BRANCH=$(git branch --show-current)
    git push origin "$BRANCH"
    ```
 
 4. Check if PR exists:
+
    ```bash
    PR_NUMBER=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number' 2>/dev/null)
    ```
@@ -105,11 +124,13 @@ Store PR_NUMBER and PR_URL for offer_next.
 </step_7_5_pr_workflow>
 
 <step_7_6_pr_review>
+
 ## 7.6. Run PR Review (pr_workflow only, optional)
 
 After marking PR ready, offer to run automated review:
 
 Use AskUserQuestion:
+
 - header: "PR Review"
 - question: "Run automated PR review before team review?"
 - options:
@@ -118,6 +139,7 @@ Use AskUserQuestion:
   - "Skip" — Proceed without review
 
 **If user chooses review:**
+
 1. Invoke skill: `Skill("kata-review-pull-requests", "<aspect>")`
 2. Display review summary with counts: {N} critical, {M} important, {P} suggestions
 3. **STOP and ask what to do with findings** (see step 7.7)
@@ -127,11 +149,13 @@ Continue to offer_next without review.
 </step_7_6_pr_review>
 
 <step_7_7_handle_findings>
+
 ## 7.7. Handle Review Findings (required after review completes)
 
 **STOP here. Do not proceed to offer_next until user chooses an action.**
 
 Use AskUserQuestion with options based on what was found:
+
 - header: "Review Findings"
 - question: "How do you want to handle the review findings?"
 - options (show only applicable ones):
@@ -144,6 +168,7 @@ Use AskUserQuestion with options based on what was found:
 **After user chooses:**
 
 **Path A: "Fix critical issues"**
+
 1. Fix each critical issue
 2. If important or suggestions remain, ask: "Add remaining {N} issues to backlog?"
    - "Yes" → Create issues, store TODOS_CREATED count
@@ -152,6 +177,7 @@ Use AskUserQuestion with options based on what was found:
 4. Continue to offer_next
 
 **Path B: "Fix critical & important"**
+
 1. Fix each critical and important issue
 2. If suggestions remain, ask: "Add {N} suggestions to backlog?"
    - "Yes" → Create issues, store TODOS_CREATED count
@@ -160,28 +186,32 @@ Use AskUserQuestion with options based on what was found:
 4. Continue to offer_next
 
 **Path C: "Fix all issues"**
+
 1. Fix all critical, important, and suggestion issues
 2. Commit and push fixes
 3. Continue to offer_next
 
 **Path D: "Add to backlog"**
+
 1. Create issues for all findings using `/kata-add-issue`
 2. Store TODOS_CREATED count
 3. Continue to offer_next
 
 **Path E: "Ignore and continue"**
+
 1. Continue to offer_next
 
 Store REVIEW_SUMMARY and TODOS_CREATED for offer_next output.
 </step_7_7_handle_findings>
 
 <anti_patterns>
+
 - Don't use AskUserQuestion for test responses — plain text conversation
 - Don't ask severity — infer from description
 - Don't present full checklist upfront — one test at a time
 - Don't run automated tests — this is manual user validation
 - Don't fix issues during testing — log as gaps, diagnose after all tests complete
-</anti_patterns>
+  </anti_patterns>
 
 <offer_next>
 Output this markdown directly (not as a code block). Route based on UAT results:
@@ -200,6 +230,7 @@ Output this markdown directly (not as a code block). Route based on UAT results:
 **Step 1: If PR_WORKFLOW=true, STOP and ask about merge BEFORE showing completion output.**
 
 Use AskUserQuestion:
+
 - header: "PR Ready for Merge"
 - question: "PR #{pr_number} is ready. Merge before continuing to next phase?"
 - options:
@@ -209,16 +240,18 @@ Use AskUserQuestion:
 **Step 2: Handle merge response (if PR_WORKFLOW=true)**
 
 If user chose "Yes, merge now":
+
 ```bash
 gh pr merge "$PR_NUMBER" --merge --delete-branch
 git checkout main && git pull
 ```
+
 Set MERGED=true for output below.
 
 **Step 3: Show completion output**
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- Kata ► PHASE {Z} VERIFIED ✓
+Kata ► PHASE {Z} VERIFIED ✓
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 **Phase {Z}: {Name}**
@@ -236,16 +269,17 @@ UAT complete ✓
 
 **Phase {Z+1}: {Name}** — {Goal from ROADMAP.md}
 
-/kata-discuss-phase {Z+1} — gather context and clarify approach
+/kata-plan-phase {Z+1} — plan next phase
 
 <sub>/clear first → fresh context window</sub>
 
 ───────────────────────────────────────────────────────────────
 
 **Also available:**
-- /kata-plan-phase {Z+1} — skip discussion, plan directly
+
+- /kata-discuss-phase {Z+1} — gather context and clarify approach
 - /kata-execute-phase {Z+1} — skip to execution (if already planned)
-{If PR_WORKFLOW and not MERGED: - `gh pr view --web` — review PR in browser before next phase}
+  {If PR_WORKFLOW and not MERGED: - `gh pr view --web` — review PR in browser before next phase}
 
 ───────────────────────────────────────────────────────────────
 
@@ -256,6 +290,7 @@ UAT complete ✓
 **Step 1: If PR_WORKFLOW=true, STOP and ask about merge BEFORE showing completion output.**
 
 Use AskUserQuestion:
+
 - header: "PR Ready for Merge"
 - question: "PR #{pr_number} is ready. Merge before completing milestone?"
 - options:
@@ -265,16 +300,18 @@ Use AskUserQuestion:
 **Step 2: Handle merge response (if PR_WORKFLOW=true)**
 
 If user chose "Yes, merge now":
+
 ```bash
 gh pr merge "$PR_NUMBER" --merge --delete-branch
 git checkout main && git pull
 ```
+
 Set MERGED=true for output below.
 
 **Step 3: Show completion output**
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- Kata ► PHASE {Z} VERIFIED ✓
+Kata ► PHASE {Z} VERIFIED ✓
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 **Phase {Z}: {Name}**
@@ -299,8 +336,9 @@ Final phase verified ✓
 ───────────────────────────────────────────────────────────────
 
 **Also available:**
+
 - /kata-complete-milestone — skip audit, archive directly
-{If PR_WORKFLOW and not MERGED: - `gh pr view --web` — review PR in browser before audit}
+  {If PR_WORKFLOW and not MERGED: - `gh pr view --web` — review PR in browser before audit}
 
 ───────────────────────────────────────────────────────────────
 
@@ -309,7 +347,7 @@ Final phase verified ✓
 **Route C: Issues found, fix plans ready**
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- Kata ► PHASE {Z} ISSUES FOUND ⚠
+Kata ► PHASE {Z} ISSUES FOUND ⚠
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 **Phase {Z}: {Name}**
@@ -335,7 +373,8 @@ Fix plans verified ✓
 ───────────────────────────────────────────────────────────────
 
 **Also available:**
-- cat ${PHASE_DIR}/*-PLAN.md — review fix plans
+
+- cat ${PHASE_DIR}/\*-PLAN.md — review fix plans
 - /kata-plan-phase {Z} --gaps — regenerate fix plans
 
 ───────────────────────────────────────────────────────────────
@@ -345,7 +384,7 @@ Fix plans verified ✓
 **Route D: Issues found, planning blocked**
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- Kata ► PHASE {Z} BLOCKED ✗
+Kata ► PHASE {Z} BLOCKED ✗
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 **Phase {Z}: {Name}**
@@ -364,6 +403,7 @@ Fix planning blocked after {X} iterations
 **Manual intervention required**
 
 Review the issues above and either:
+
 1. Provide guidance for fix planning
 2. Manually address blockers
 3. Accept current state and continue
@@ -371,6 +411,7 @@ Review the issues above and either:
 ───────────────────────────────────────────────────────────────
 
 **Options:**
+
 - /kata-plan-phase {Z} --gaps — retry fix planning with guidance
 - /kata-discuss-phase {Z} — gather more context before replanning
 
@@ -378,6 +419,7 @@ Review the issues above and either:
 </offer_next>
 
 <success_criteria>
+
 - [ ] UAT.md created with tests from SUMMARY.md
 - [ ] Tests presented one at a time with expected behavior
 - [ ] Plain text responses (no structured forms)
@@ -388,4 +430,4 @@ Review the issues above and either:
 - [ ] If issues: kata-planner creates fix plans from diagnosed gaps
 - [ ] If issues: kata-plan-checker verifies fix plans (max 3 iterations)
 - [ ] Ready for `/kata-execute-phase` when complete
-</success_criteria>
+      </success_criteria>

@@ -4,14 +4,16 @@ description: Check project progress, show context, and route to next action (exe
 metadata:
   version: "1.6.1"
 ---
+
 <objective>
 Check project progress, summarize recent work and what's ahead, then intelligently route to the next action - either executing an existing plan or creating the next one.
 
 Provides situational awareness before continuing work.
 </objective>
 
-
 <process>
+
+**Script invocation rule.** Code blocks reference scripts with paths relative to this SKILL.md (e.g., `"../kata-configure-settings/scripts/read-config.sh"`). Resolve these to absolute paths. Run scripts from the project directory (where `.planning/` lives). If you must run from a different directory, pass the project root via environment variable: `KATA_PROJECT_ROOT=/path/to/project bash "/path/to/script.sh" args`.
 
 <step name="verify">
 **Verify planning structure exists:**
@@ -50,7 +52,7 @@ If ROADMAP.md exists, check format and auto-migrate if old:
 if [ -f .planning/ROADMAP.md ]; then
   bash "../kata-doctor/scripts/check-roadmap-format.sh" 2>/dev/null
   FORMAT_EXIT=$?
-  
+
   if [ $FORMAT_EXIT -eq 1 ]; then
     echo "Old roadmap format detected. Running auto-migration..."
   fi
@@ -70,7 +72,6 @@ Continue after migration completes.
 **If exit code 0 or 2:** Continue silently.
 </step>
 
-
 <step name="load">
 **Load full project context:**
 
@@ -82,8 +83,9 @@ Continue after migration completes.
 **Load PR workflow config:**
 
 ```bash
-PR_WORKFLOW=$(cat .planning/config.json 2>/dev/null | grep -o '"pr_workflow"[[:space:]]*:[[:space:]]*[^,}]*' | grep -o 'true\|false' || echo "false")
+PR_WORKFLOW=$(bash "../kata-configure-settings/scripts/read-config.sh" "pr_workflow" "false")
 ```
+
   </step>
 
 <step name="recent">
@@ -108,7 +110,7 @@ PR_WORKFLOW=$(cat .planning/config.json 2>/dev/null | grep -o '"pr_workflow"[[:s
 <step name="report">
 **Present rich status report:**
 
-```
+````
 # [Project Name]
 
 **Progress:** [████████░░] 8/10 plans complete
@@ -170,9 +172,10 @@ if [ "$PR_WORKFLOW" = "true" ]; then
     fi
   fi
 fi
-```
+````
 
 **If PR exists:**
+
 ```
 ## PR Status
 
@@ -182,6 +185,7 @@ URL: [url]
 ```
 
 **If no PR exists:**
+
 ```
 ## PR Status
 
@@ -190,8 +194,10 @@ Branch: [current_branch]
 ```
 
 ## What's Next
+
 [Next phase/plan objective from ROADMAP]
-```
+
+````
 
 </step>
 
@@ -215,7 +221,7 @@ if [ -z "$PHASE_DIR" ]; then
   PHASE_DIR=$(find .planning/phases -maxdepth 1 -type d -name "${PADDED}-*" 2>/dev/null | head -1)
   [ -z "$PHASE_DIR" ] && PHASE_DIR=$(find .planning/phases -maxdepth 1 -type d -name "${CURRENT_PHASE}-*" 2>/dev/null | head -1)
 fi
-```
+````
 
 List files in the current phase directory:
 
@@ -237,6 +243,7 @@ find "${PHASE_DIR}" -maxdepth 1 -name "*-UAT.md" -exec grep -l "status: diagnose
 ```
 
 Track:
+
 - `uat_with_gaps`: UAT.md files with status "diagnosed" (gaps need fixing)
 
 **Step 2: Route based on counts**
@@ -302,14 +309,14 @@ Check if `{phase}-CONTEXT.md` exists in phase directory.
 
 **Phase {N}: {Name}** — {Goal from ROADMAP.md}
 
-`/kata-discuss-phase {phase}` — gather context and clarify approach
+`/kata-plan-phase {phase}` — plan next phase
 
 <sub>`/clear` first → fresh context window</sub>
 
 ---
 
 **Also available:**
-- `/kata-plan-phase {phase}` — skip discussion, plan directly
+- `/kata-discuss-phase {phase}` — gather context and clarify approach
 - `/kata-listing-phase-assumptions {phase}` — see Claude's assumptions
 
 ---
@@ -346,6 +353,7 @@ UAT.md exists with gaps (diagnosed issues). User needs to plan fixes.
 **Step 3: Check milestone status (only when phase complete)**
 
 Read ROADMAP.md and identify:
+
 1. Current phase number
 2. All phase numbers in the current milestone section
 
@@ -379,14 +387,14 @@ Then continue with:
 }
 **Phase {Z+1}: {Name}** — {Goal from ROADMAP.md}
 
-`/kata-discuss-phase {Z+1}` — gather context and clarify approach
+`/kata-plan-phase {Z+1}` —  plan next phase
 
 <sub>`/clear` first → fresh context window</sub>
 
 ---
 
 **Also available:**
-- `/kata-plan-phase {Z+1}` — skip discussion, plan directly
+- `/kata-discuss-phase {Z+1}` — gather context and clarify approach
 - `/kata-verify-work {Z}` — user acceptance test before continuing
 
 ---

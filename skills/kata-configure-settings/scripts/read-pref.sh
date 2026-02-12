@@ -3,6 +3,9 @@
 # Resolution: preferences.json -> config.json -> built-in defaults -> fallback arg
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/project-root.sh"
+
 KEY="${1:?Usage: read-pref.sh <key> [fallback]}"
 FALLBACK="${2:-}"
 
@@ -26,6 +29,7 @@ const DEFAULTS = {
   'workflow.research': 'true',
   'workflow.plan_check': 'true',
   'workflow.verifier': 'true',
+  'worktree.enabled': 'false',
   'github.enabled': 'false',
   'github.issueMode': 'never',
   'workflows.execute-phase.post_task_command': '',

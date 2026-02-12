@@ -42,8 +42,9 @@ Output: Milestone archived (roadmap + requirements), PROJECT.md evolved, git tag
    **Check pr_workflow config FIRST before any other work:**
 
    ```bash
-   PR_WORKFLOW=$(cat .planning/config.json 2>/dev/null | grep -o '"pr_workflow"[[:space:]]*:[[:space:]]*[^,}]*' | grep -o 'true\|false' || echo "false")
+   PR_WORKFLOW=$(bash "../kata-configure-settings/scripts/read-config.sh" "pr_workflow" "false")
    CURRENT_BRANCH=$(git branch --show-current)
+   WORKTREE_ENABLED=$(bash "../kata-configure-settings/scripts/read-config.sh" "worktree.enabled" "false")
    ```
 
    **If `PR_WORKFLOW=true` AND on `main`:**
@@ -54,20 +55,23 @@ Output: Milestone archived (roadmap + requirements), PROJECT.md evolved, git tag
    # Determine version from user input or detect from project files
    # (version-detector.md handles detection across project types)
    VERSION="X.Y.Z"  # Set from user input or detection
+   ```
 
-   # Create release branch
-   git checkout -b release/v$VERSION
+   **Release branches always use the `main/` working directory.** Do NOT create a separate worktree for release work. Milestone completion is sequential admin work with no parallelism — a separate worktree adds complexity with no benefit.
 
-   echo "Created release branch: release/v$VERSION"
-   echo "All milestone completion work will be committed here."
+   Create the release branch in the current working directory. In bare repo layout, CWD is already `main/`. In normal repos, CWD is the project root. Both cases use the same command:
+
+   ```bash
+   RELEASE_BRANCH="release/v$VERSION"
+   git checkout -b "$RELEASE_BRANCH"
    ```
 
    Display:
 
    ```
-   ⚠ pr_workflow is enabled — creating release branch first.
+   ⚠ pr_workflow is enabled — creating release branch.
 
-   Branch: release/v$VERSION
+   Branch: $RELEASE_BRANCH
 
    All milestone completion commits will go to this branch.
    After completion, a PR will be created to merge to main.
@@ -80,6 +84,8 @@ Output: Milestone archived (roadmap + requirements), PROJECT.md evolved, git tag
    **GATE: Do NOT proceed until branch is correct:**
    - If pr_workflow=true, you must be on release/vX.Y.Z branch
    - If pr_workflow=false, main branch is OK
+
+   **All subsequent steps work in the current working directory.** Do NOT cd to any other directory.
 
 0.1. **Pre-flight: Check roadmap format (auto-migration)**
 
@@ -130,13 +136,38 @@ Store for use in release workflow steps. See milestone-complete.md `read_workflo
 
 0.2. **Generate release artifacts:**
 
-Proactively generate changelog and version bump. Follow the release_workflow step in milestone-complete.md (loads version-detector.md and changelog-generator.md) to:
+Proactively generate changelog and version bump. Use the functions defined in version-detector.md and changelog-generator.md. Run these steps using the exact function definitions from those references:
 
-1.  Detect version bump type from conventional commits
-2.  Calculate next version
-3.  Generate changelog entry
-4.  Bump version in all project version files detected by version-detector.md
-5.  Insert changelog entry into CHANGELOG.md
+```bash
+# 1. Get current version (version-detector.md: get_current_version)
+CURRENT_VERSION=$(node -p "require('./package.json').version" 2>/dev/null || git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo "0.0.0")
+
+# 2. Get commits since last tag (version-detector.md: commit_parsing)
+LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+if [ -n "$LAST_TAG" ]; then
+  COMMITS=$(git log --oneline --format="%s" "$LAST_TAG"..HEAD)
+else
+  COMMITS=$(git log --oneline --format="%s")
+fi
+
+# 3. Categorize commits
+BREAKING=$(echo "$COMMITS" | grep -E "^[a-z]+(\(.+\))?!:|BREAKING CHANGE:" || true)
+FEATURES=$(echo "$COMMITS" | grep -E "^feat(\(.+\))?:" || true)
+FIXES=$(echo "$COMMITS" | grep -E "^fix(\(.+\))?:" || true)
+
+# 4. Determine bump type
+if [ -n "$BREAKING" ]; then BUMP_TYPE="major"
+elif [ -n "$FEATURES" ]; then BUMP_TYPE="minor"
+elif [ -n "$FIXES" ]; then BUMP_TYPE="patch"
+else BUMP_TYPE="none"
+fi
+
+echo "CURRENT=$CURRENT_VERSION BUMP=$BUMP_TYPE"
+echo "FEATURES: $FEATURES"
+echo "FIXES: $FIXES"
+```
+
+Calculate next version using `calculate_next_version` from version-detector.md. Generate changelog entry using changelog-generator.md format. Update version in project files using `update_versions` from version-detector.md (if version changed).
 
 Present all proposed changes for review:
 
@@ -273,7 +304,7 @@ See milestone-complete.md `close_github_milestone` step for details.
    **PR workflow handling (branch was created in step 0):**
 
    ```bash
-   PR_WORKFLOW=$(cat .planning/config.json 2>/dev/null | grep -o '"pr_workflow"[[:space:]]*:[[:space:]]*[^,}]*' | grep -o 'true\|false' || echo "false")
+   PR_WORKFLOW=$(bash "../kata-configure-settings/scripts/read-config.sh" "pr_workflow" "false")
    CURRENT_BRANCH=$(git branch --show-current)
    ```
 
@@ -282,12 +313,12 @@ See milestone-complete.md `close_github_milestone` step for details.
    Push branch and create PR:
 
    ```bash
-   # Push branch
+   # Push branch (use --head for bare repo layout where gh can't auto-detect)
    git push -u origin "$CURRENT_BRANCH"
 
    # Collect all phase issues for this milestone
-   GITHUB_ENABLED=$(cat .planning/config.json 2>/dev/null | grep -o '"enabled"[[:space:]]*:[[:space:]]*[^,}]*' | head -1 | grep -o 'true\|false' || echo "false")
-   ISSUE_MODE=$(cat .planning/config.json 2>/dev/null | grep -o '"issueMode"[[:space:]]*:[[:space:]]*"[^"]*"' | grep -o '"[^"]*"$' | tr -d '"' || echo "never")
+   GITHUB_ENABLED=$(bash "../kata-configure-settings/scripts/read-config.sh" "github.enabled" "false")
+   ISSUE_MODE=$(bash "../kata-configure-settings/scripts/read-config.sh" "github.issueMode" "never")
 
    CLOSES_LINES=""
    if [ "$GITHUB_ENABLED" = "true" ] && [ "$ISSUE_MODE" != "never" ]; then
@@ -314,8 +345,10 @@ See milestone-complete.md `close_github_milestone` step for details.
      done
    fi
 
-   # Create PR
+   # Create PR (--head required for bare repo worktree layout)
    gh pr create \
+     --head "$CURRENT_BRANCH" \
+     --base main \
      --title "v{{version}}: [Milestone Name]" \
      --body "$(cat <<EOF
    ## Summary
@@ -352,6 +385,28 @@ See milestone-complete.md `close_github_milestone` step for details.
    → Create GitHub Release with tag v{{version}}
    ```
 
+   **Offer to merge PR:**
+
+   Use AskUserQuestion:
+   - header: "Merge Release PR"
+   - question: "PR is ready. Merge now?"
+   - options:
+     - "Yes, merge now" — merge and return to main
+     - "No, I'll merge later" — leave PR open
+
+   **If "Yes, merge now":**
+
+   ```bash
+   gh pr merge "$PR_NUMBER" --merge --delete-branch
+   ```
+
+   Then return to main:
+
+   ```bash
+   git checkout main
+   git pull
+   ```
+
    **If `PR_WORKFLOW=false` (on main):**
 
    Create tag locally:
@@ -360,32 +415,87 @@ See milestone-complete.md `close_github_milestone` step for details.
 
 8. **Post-release verification:**
 
-   After the release PR is merged (or tag is pushed), prompt for verification:
+   After the release PR is merged (or tag is pushed), offer active verification tasks.
 
-   ```
-   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    POST-RELEASE CHECKLIST
-   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-   Before moving on, verify the release:
-
-   ☐ CI/CD pipeline passed (if configured)
-   ☐ Release artifacts published successfully
-   ☐ Quick smoke test confirms basic functionality
-
-   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   ```
+   **Task menu loop:** Present available tasks, execute the selected one, then re-present remaining tasks until the user exits.
 
    Use AskUserQuestion:
-   - header: "Verification"
-   - question: "Release verification complete?"
-   - options:
-     - "Yes, verified" — Continue to completion
-     - "Something failed" — Stop and investigate
-     - "Skip" — Continue without verifying
+   - header: "Post-Release Tasks"
+   - question: "Release committed. What would you like to verify?"
+   - options (show only uncompleted tasks):
+     - "Run smoke tests" — Execute the project's test suite and report results
+     - "Verify release artifacts" — Check version files, changelog entry, and git tag
+     - "Check CI/CD status" — Show recent workflow runs and their status
+     - "Everything looks good" — Skip remaining verification, proceed to step 9
 
-   **If "Something failed":** Stop and help debug the issue.
-   **If "Yes" or "Skip":** Continue to step 9.
+   **If "Run smoke tests":**
+
+   Execute the project's test suite:
+
+   ```bash
+   npm test 2>&1 || echo "SMOKE_TEST_FAILED"
+   ```
+
+   Report pass/fail results. If failures found, use AskUserQuestion:
+   - header: "Test Failures"
+   - question: "Smoke tests reported failures. How to proceed?"
+   - options:
+     - "Help me fix" — Stop and debug the failing tests
+     - "Continue anyway" — Return to task menu
+
+   **If "Help me fix":** Stop milestone completion and help debug.
+
+   **If "Verify release artifacts":**
+
+   Run artifact checks:
+
+   ```bash
+   VERSION="{{version}}"
+
+   echo "=== Version File Check ==="
+   # Use version-detector.md detected files or workflow config overrides
+   for f in $(cat .planning/config.json 2>/dev/null | grep -o '"version_files"[[:space:]]*:[[:space:]]*\[[^]]*\]' | grep -o '"[^"]*"' | tr -d '"' | grep -v version_files); do
+     if [ -f "$f" ]; then
+       grep -q "$VERSION" "$f" && echo "✓ $f contains $VERSION" || echo "✗ $f missing $VERSION"
+     fi
+   done
+
+   echo "=== Changelog Check ==="
+   grep -q "$VERSION" CHANGELOG.md 2>/dev/null && echo "✓ CHANGELOG.md has $VERSION entry" || echo "✗ CHANGELOG.md missing $VERSION entry"
+
+   echo "=== Git Tag Check ==="
+   git tag -l "v$VERSION" | grep -q . && echo "✓ Tag v$VERSION exists" || echo "✗ Tag v$VERSION not found"
+   ```
+
+   Report results. If mismatches found, use AskUserQuestion:
+   - header: "Artifact Issues"
+   - question: "Release artifact issues detected. How to proceed?"
+   - options:
+     - "Fix issues" — Correct the mismatches (update version files, create missing tag)
+     - "Continue anyway" — Return to task menu
+
+   **If "Fix issues":** Apply fixes, commit, then return to task menu.
+
+   **If "Check CI/CD status":**
+
+   Query recent workflow runs:
+
+   ```bash
+   gh run list --limit 3 2>/dev/null || echo "No CI/CD runs found (gh CLI not configured or no workflows)"
+   ```
+
+   Report status. If failures found, use AskUserQuestion:
+   - header: "CI/CD Failures"
+   - question: "CI/CD failures detected. How to proceed?"
+   - options:
+     - "Investigate" — Show logs for the failed run (`gh run view --log-failed`)
+     - "Continue anyway" — Return to task menu
+
+   **If "Investigate":** Display failure logs, then return to task menu.
+
+   **If "Everything looks good":** Proceed to step 9.
+
+   **Loop behavior:** After each completed task, remove it from the options and re-present the menu. When all three tasks have been run or user selects "Everything looks good", proceed to step 9.
 
 9. **Offer next steps:**
    - `/kata-add-milestone` — start next milestone (questioning → research → requirements → roadmap)

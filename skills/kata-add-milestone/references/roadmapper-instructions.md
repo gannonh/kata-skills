@@ -30,6 +30,13 @@ Your ROADMAP.md is consumed by `/kata-plan-phase` which uses it to:
 **Be specific.** Success criteria must be observable user behaviors, not implementation tasks.
 </downstream_consumer>
 
+<slicing_guidance>
+@./slicing-principles.md
+@./milestone-scope-checklist.md
+
+Apply vertical slicing principles during phase identification and evaluation. Every phase must be independently demo-able since phases map to PRs.
+</slicing_guidance>
+
 <philosophy>
 
 ## Solo Developer + Claude Workflow
@@ -87,8 +94,22 @@ Take the phase goal from your phase identification. This is the outcome, not wor
 - Good: "Users can securely access their accounts" (outcome)
 - Bad: "Build authentication" (task)
 
-**Step 2: Derive Observable Truths (2-5 per phase)**
-List what users can observe/do when the phase completes.
+**Step 2: Define the Demo Scenario**
+**CRITICAL:** What will you show when this phase completes? The demo must be concrete, visual, and user-facing.
+
+For "Users can securely access their accounts":
+- **Demo:** User visits /signup, creates account with email/password, logs in, session persists across browser refresh, user logs out successfully
+
+**Test:** Can you write specific steps a user would follow to see this working? If demo requires showing code or database tables, phase is not user-facing enough.
+
+**Red flags:**
+- "Demo: Code is refactored" ❌ → Not user-visible
+- "Demo: Tests pass" ❌ → Not a demo
+- "Demo: Validation works" ❌ → Too abstract
+- "Demo: User can sign up and log in" ✓ → Concrete steps
+
+**Step 3: Derive Observable Truths (2-5 per phase)**
+List what users can observe/do when the phase completes. These should align with the demo scenario.
 
 For "Users can securely access their accounts":
 - User can create account with email/password
@@ -98,7 +119,7 @@ For "Users can securely access their accounts":
 
 **Test:** Each truth should be verifiable by a human using the application.
 
-**Step 3: Cross-Check Against Requirements**
+**Step 4: Cross-Check Against Requirements**
 For each success criterion:
 - Does at least one requirement support this?
 - If not → gap found
@@ -107,7 +128,7 @@ For each requirement mapped to this phase:
 - Does it contribute to at least one success criterion?
 - If not → question if it belongs here
 
-**Step 4: Resolve Gaps**
+**Step 5: Resolve Gaps**
 Success criterion with no supporting requirement:
 - Add requirement to REQUIREMENTS.md, OR
 - Mark criterion as out of scope for this phase
@@ -221,6 +242,174 @@ Phase 3: All UI components ← Nothing works until end
 
 </phase_identification>
 
+<milestone_evaluation>
+
+## Evaluating Phase Structure
+
+After identifying phases, run through milestone scope checklist to validate structure.
+
+### User Value Check
+
+Ask: "What can users DO after this milestone ships?"
+
+Good answers describe observable user actions:
+- "Users can create accounts and log in"
+- "Users can browse products and add to cart"
+- "Admin can manage inventory"
+
+Bad answers describe technical states:
+- "Database is set up"
+- "API framework is configured"
+- "Infrastructure is ready"
+
+**Fix if failing:** Reframe infrastructure phases as feature phases, inline setup with first feature, defer non-critical setup.
+
+### Demo-ability Check
+
+**CRITICAL:** Phase = PR = Demo unit. Every phase must be independently demo-able with a concrete demo scenario.
+
+For each phase, you MUST derive a demo scenario that answers: "What specific steps will a user follow to see this working?"
+
+**Demo format requirements:**
+1. Starts with "Demo: " prefix
+2. Contains specific user actions (visit URL, click button, enter data)
+3. Describes observable outcomes (page loads, data appears, PR created)
+4. Takes 30-60 seconds to execute
+5. Requires no code inspection (all UI/CLI visible)
+
+**Good demo scenarios:**
+- Phase 1: User Registration
+  - **Demo:** User visits /signup, enters email/password, clicks Create Account, sees confirmation message, logs in with credentials, session persists after browser refresh
+
+- Phase 2: Product Catalog
+  - **Demo:** User visits /products, sees product grid, clicks category filter, grid updates, clicks product card, sees detail page with price and description
+
+- Phase 3: Shopping Cart
+  - **Demo:** User adds product to cart, cart badge shows count, visits /cart, adjusts quantity, sees updated total, removes item, cart updates
+
+**Bad demo scenarios (RED FLAGS):**
+- Phase 1: Database Schema
+  - **Demo:** "Database tables exist" ← NOT USER-VISIBLE
+  - **Fix:** Inline schema creation with first feature that uses it
+
+- Phase 2: API Endpoints
+  - **Demo:** "curl returns 200" ← NOT USER-FACING
+  - **Fix:** Include UI in this phase (vertical slice)
+
+- Phase 3: Code Quality
+  - **Demo:** "Tests pass, code is cleaner" ← NOT A DEMO
+  - **Fix:** Either inline with feature work or make it phase 0 before real work
+
+- Phase 4: Validation & Caching
+  - **Demo:** "Validation errors show" ← TOO ABSTRACT
+  - **Fix:** Show validation in context of a complete feature
+
+**Test:** Write the demo scenario. If it requires showing code, logs, or database state, phase is not demo-able.
+
+**Fix if failing:** Restructure phases as vertical slices (DB + API + UI per feature), inline setup with first feature, ensure each phase ships working end-to-end capability.
+
+### Independence Check
+
+Ask: "Can phases execute with minimal dependencies?"
+
+Good structure allows parallel execution:
+```
+Phase 1: User Auth (no dependencies) → Wave 1
+Phase 2: Product Catalog (depends on Phase 1) → Wave 2
+Phase 3: Shopping Cart (depends on Phase 1) → Wave 2
+Phase 4: Order Processing (depends on Phases 2-3) → Wave 3
+
+Parallel opportunity: Phases 2-3 in Wave 2
+```
+
+Bad structure forces sequential execution:
+```
+Phase 1: Database Models → Phase 2: API Layer → Phase 3: UI Layer → Phase 4: Integration Tests
+
+Everything sequential. No parallelism.
+```
+
+**Test:** Draw dependency graph. Do 30%+ of phases have parallel opportunities?
+
+**Fix if failing:** Switch from horizontal layers to vertical features, identify truly independent features, reduce cross-phase dependencies.
+
+### Slicing Check
+
+Ask: "Are phases vertical (feature-focused) or horizontal (layer-focused)?"
+
+**Vertical phases (GOOD):** Named after features/capabilities
+- "User Authentication"
+- "Product Catalog"
+- "Shopping Cart"
+
+**Horizontal phases (BAD):** Named after technical layers
+- "Database Schema"
+- "API Endpoints"
+- "Frontend Components"
+
+**Test:** Read phase names. Do they describe user features or technical layers?
+
+**Fix if failing:** Rename phases to features they deliver, restructure as one feature per phase (full stack).
+
+### Common Fixes
+
+**Fix 1: Infrastructure-Heavy Milestone**
+
+Before:
+```
+v1.0: Foundation
+- Phase 1: Database setup
+- Phase 2: API framework
+- Phase 3: Auth system
+```
+
+After:
+```
+v1.0: Core Features
+- Phase 1: User Management (includes auth, DB setup)
+- Phase 2: Data Management (includes API framework)
+```
+
+**Fix 2: Sequential Bottleneck**
+
+Before:
+```
+Phase 1: Create all models → Phase 2: Create all APIs → Phase 3: Create all UI
+```
+
+After:
+```
+Phase 1: Foundation (shared models)
+Phase 2: Feature A (model + API + UI) [parallel with Phase 3]
+Phase 3: Feature B (model + API + UI) [parallel with Phase 2]
+```
+
+**Fix 3: Non-Demo-able Phases**
+
+Before:
+```
+Phase 1: Backend Setup (not demo-able)
+Phase 2: Frontend Setup (not demo-able)
+Phase 3: Integration (finally demo-able)
+```
+
+After:
+```
+Phase 1: User Auth (demo: login works)
+Phase 2: Product Catalog (demo: browse products)
+Phase 3: Shopping Cart (demo: add to cart)
+```
+
+### Reference Case Studies
+
+For detailed examples of good vs bad milestone structure, see:
+- @./slicing-principles.md (Case Study 1: E-commerce MVP)
+- @./slicing-principles.md (Case Study 2: SaaS Dashboard)
+
+Both show horizontal vs vertical comparisons with plan counts and demo-ability analysis.
+
+</milestone_evaluation>
+
 <coverage_validation>
 
 ## 100% Requirement Coverage
@@ -298,9 +487,37 @@ Use this exact canonical format:
 
 **Goal:** [One sentence describing milestone focus]
 
-- [x] Phase N: [Name] (P/P plans) — completed YYYY-MM-DD
-- [x] Phase N+1: [Name] (P/P plans) — completed YYYY-MM-DD
-- [ ] Phase N+2: [Name] (P/P plans)
+### Phase N: [Name]
+
+**Goal:** [Phase outcome statement]
+**Demo:** [Concrete user-facing demo scenario with specific steps]
+**Requirements:** REQ-01, REQ-02, REQ-03
+**Plans:** N plans
+
+Plans:
+- [ ] NN-01-PLAN.md — [brief objective]
+- [ ] NN-02-PLAN.md — [brief objective]
+
+**Success Criteria:**
+1. [Observable truth 1]
+2. [Observable truth 2]
+3. [Observable truth 3]
+
+---
+
+### Phase N+1: [Name]
+
+**Goal:** [Phase outcome statement]
+**Demo:** [Concrete user-facing demo scenario with specific steps]
+**Requirements:** REQ-04, REQ-05
+**Plans:** N plans
+
+Plans:
+- [ ] NN-01-PLAN.md — [brief objective]
+
+**Success Criteria:**
+1. [Observable truth 1]
+2. [Observable truth 2]
 
 ## Completed Milestones
 
@@ -347,6 +564,7 @@ Use this exact canonical format:
 - MUST have `## Current Milestone: v[X.Y] [Name]` heading
 - MUST NOT have standalone `## Phases` section (old format)
 - Phases are listed under milestone sections, not at root level
+- MUST have `**Demo:**` field for each phase with concrete user-facing scenario
 
 ## STATE.md Structure
 
@@ -408,11 +626,21 @@ When presenting to user for approval:
 
 ### Phase Structure
 
-| Phase       | Goal   | Requirements              | Success Criteria |
-| ----------- | ------ | ------------------------- | ---------------- |
-| 1 - Setup   | [goal] | SETUP-01, SETUP-02        | 3 criteria       |
-| 2 - Auth    | [goal] | AUTH-01, AUTH-02, AUTH-03 | 4 criteria       |
-| 3 - Content | [goal] | CONT-01, CONT-02          | 3 criteria       |
+| Phase       | Goal   | Demo | Requirements              | Success Criteria |
+| ----------- | ------ | ---- | ------------------------- | ---------------- |
+| 1 - Setup   | [goal] | [concrete demo scenario] | SETUP-01, SETUP-02        | 3 criteria       |
+| 2 - Auth    | [goal] | [concrete demo scenario] | AUTH-01, AUTH-02, AUTH-03 | 4 criteria       |
+| 3 - Content | [goal] | [concrete demo scenario] | CONT-01, CONT-02          | 3 criteria       |
+
+### Demo Scenarios
+
+**Phase 1: Setup**
+Demo: [Specific steps user follows to see this working]
+
+**Phase 2: Auth**
+Demo: [Specific steps user follows to see this working]
+
+[... abbreviated for longer roadmaps ...]
 
 ### Success Criteria Preview
 
@@ -549,10 +777,18 @@ When files are written and returning to orchestrator:
 **Depth:** {from config}
 **Coverage:** {X}/{X} requirements mapped ✓
 
-| Phase      | Goal   | Requirements |
-| ---------- | ------ | ------------ |
-| 1 - {name} | {goal} | {req-ids}    |
-| 2 - {name} | {goal} | {req-ids}    |
+| Phase      | Goal   | Demo | Requirements |
+| ---------- | ------ | ---- | ------------ |
+| 1 - {name} | {goal} | {concrete demo scenario} | {req-ids}    |
+| 2 - {name} | {goal} | {concrete demo scenario} | {req-ids}    |
+
+### Demo Scenarios
+
+**Phase 1: {name}**
+Demo: {Specific steps user follows to see this working}
+
+**Phase 2: {name}**
+Demo: {Specific steps user follows to see this working}
 
 ### Success Criteria Preview
 

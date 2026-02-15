@@ -33,56 +33,98 @@ Store resolved models for use in Task calls below.
 </step>
 
 <step name="worktree_lifecycle">
-Determine whether worktree isolation is enabled and manage the lifecycle for each plan.
+Manage the workspace worktree lifecycle: workspace/ holds the phase branch, plan worktrees (when worktree.enabled=true) fork from it.
 
-**1. Detection:**
+**0. Detection:**
 
 ```bash
 WORKTREE_ENABLED=$(bash scripts/read-config.sh "worktree.enabled" "false")
+PR_WORKFLOW=$(bash scripts/read-config.sh "pr_workflow" "false")
 ```
 
-Store as `WORKTREE_ENABLED` for use in execute_waves. When `false` (default), skip all worktree operations. Existing non-worktree execution is unchanged.
+Store both variables. When `PR_WORKFLOW=false`, skip all worktree operations.
 
-**2. Create (per plan, before agent spawn):**
-
-Before spawning an executor agent for a plan, create its worktree:
+**1. Create phase branch (before any plan execution):**
 
 ```bash
-if [ "$WORKTREE_ENABLED" = "true" ]; then
-  eval "$(bash scripts/manage-worktree.sh create "$PHASE" "$PLAN")"
-  # WORKTREE_PATH now set (e.g., "plan-46-01")
+if [ "$PR_WORKFLOW" = "true" ]; then
+  eval "$(bash scripts/create-phase-branch.sh "$PHASE_DIR")"
+  WORKSPACE_PATH=$WORKSPACE_PATH
+  PHASE_BRANCH=$BRANCH
 fi
 ```
 
-The script is idempotent. If the worktree already exists, it returns the path without error.
+Switches workspace/ to a new phase branch. The workspace/ directory persists across phases. main/ stays on the main branch. All subsequent work happens in workspace/ or plan worktrees forked from it.
 
-**3. Inject path into agent prompt:**
+**2. Create plan worktrees (per plan, before agent spawn):**
 
-Add `<working_directory>` to each executor agent's Task() prompt:
+Only when both `PR_WORKFLOW=true` AND `WORKTREE_ENABLED=true`:
+
+```bash
+if [ "$WORKTREE_ENABLED" = "true" ] && [ "$PR_WORKFLOW" = "true" ]; then
+  eval "$(bash scripts/manage-worktree.sh create "$PHASE" "$PLAN" "$PHASE_BRANCH")"
+  # WORKTREE_PATH now set (e.g., "plan-50-01")
+fi
+```
+
+Plan worktrees fork from workspace/'s current branch (the phase branch).
+
+**3. Inject working directory into agent prompt:**
+
+Two cases based on config:
+
+| PR_WORKFLOW | WORKTREE_ENABLED | Working Directory | Why |
+|-------------|------------------|-------------------|-----|
+| true | true | Plan worktree path | Agent works in isolated plan branch |
+| (any) | false or PR_WORKFLOW=false | (omitted) | Agent works in workspace/ or project root |
+
+Add to each executor agent's Task() prompt when Case 1 applies:
 
 ```xml
-<working_directory>{WORKTREE_PATH}</working_directory>
+<working_directory>{plan_worktree_path}</working_directory>
 ```
 
-The executor agent reads this block and cd's into the path before any file or git operations.
+The executor agent reads this block and cd's into the path before any file or git operations. When omitted, the agent works in its default directory (workspace/ or project root).
 
-**4. Merge (per plan, after agent completes):**
+**4. Merge plan worktrees (per plan, after wave completes):**
 
-After all agents in a wave finish, merge each plan's branch back to the base:
+Only when both `PR_WORKFLOW=true` AND `WORKTREE_ENABLED=true`:
 
 ```bash
-if [ "$WORKTREE_ENABLED" = "true" ]; then
-  bash scripts/manage-worktree.sh merge "$PHASE" "$PLAN"
+if [ "$WORKTREE_ENABLED" = "true" ] && [ "$PR_WORKFLOW" = "true" ]; then
+  bash scripts/manage-worktree.sh merge "$PHASE" "$PLAN" "$PHASE_BRANCH" "$WORKSPACE_PATH"
 fi
 ```
 
-This fast-forward merges the plan branch into the base branch and removes the worktree directory.
+The third arg (`$PHASE_BRANCH`) is the base branch. The fourth arg (`$WORKSPACE_PATH`) is the merge target directory. Plan branches merge into workspace/, not into main/.
 
-**5. Cleanup on failure:**
+**5. Phase completion (after all waves):**
 
-If an agent fails, its worktree remains on disk for debugging. The user can inspect the state and then either:
-- Complete the work manually and run `manage-worktree.sh merge`
-- Discard the work with `git worktree remove plan-{phase}-{plan}`
+When `PR_WORKFLOW=true`: Push the phase branch and create a PR against main. The orchestrator runs from workspace/, so git operations work directly.
+
+```bash
+git push -u origin "$PHASE_BRANCH"
+gh pr create --draft --head "$PHASE_BRANCH" --base main ...
+```
+
+When `PR_WORKFLOW=false`: No branch operations. Standard behavior.
+
+**6. Cleanup (after PR merge):**
+
+After the PR is merged (or local merge completed):
+
+```bash
+bash scripts/manage-worktree.sh cleanup-phase "$WORKSPACE_PATH" "$PHASE_BRANCH"
+```
+
+Switches workspace/ back to workspace-base branch and deletes the phase branch. No directory removal: workspace/ persists.
+
+**7. Cleanup on failure:**
+
+If an agent fails, its plan worktree remains on disk for debugging. Workspace stays on the phase branch for investigation. The user can:
+- Fix the issue and resume execution
+- Discard plan work with `git worktree remove plan-{phase}-{plan}`
+- Reset workspace with `manage-worktree.sh cleanup-phase`
 </step>
 
 <step name="load_project_state">
@@ -249,7 +291,7 @@ The "What it builds" column comes from skimming plan names/objectives. Keep it b
 <step name="execute_waves">
 Execute each wave in sequence. Autonomous plans within a wave run in parallel.
 
-**Worktree mode:** If `WORKTREE_ENABLED=true`, see `worktree_lifecycle` step for pre-spawn (create worktree) and post-wave (merge worktree) operations that wrap each wave.
+**Worktree mode:** If `PR_WORKFLOW=true`, see `worktree_lifecycle` step for workspace branch switching (before any waves) and plan worktree create/merge operations (per wave when `WORKTREE_ENABLED=true`). When `PR_WORKFLOW=true` and `WORKTREE_ENABLED=false`, agents work directly in workspace/.
 
 **For each wave:**
 
@@ -668,6 +710,8 @@ git add .planning/ROADMAP.md .planning/STATE.md .planning/phases/{phase_dir}/*-V
 git add .planning/REQUIREMENTS.md  # if updated
 git commit -m "docs(phase-{X}): complete phase execution"
 ```
+
+**When PR_WORKFLOW=true:** Git add/commit operations in this step execute in workspace/. The orchestrator runs from workspace/, so plain git commands work directly.
 </step>
 
 <step name="offer_next">
@@ -717,7 +761,7 @@ Each subagent: Fresh 200k context
 **No context bleed.** Orchestrator never reads workflow internals. Just paths and results.
 
 <worktree_context>
-Worktree isolation adds approximately 2% orchestrator context overhead: one config read at startup (`WORKTREE_ENABLED` check) plus per-wave `manage-worktree.sh create` and `manage-worktree.sh merge` calls. Each agent receives a clean working directory on an isolated git branch. The orchestrator tracks no additional state beyond the `WORKTREE_PATH` variable per plan.
+Workspace branch switching adds one script call at startup (create-phase-branch.sh). Plan worktree isolation (when worktree.enabled=true) adds per-wave manage-worktree.sh create and merge calls. Each plan agent receives a clean working directory on an isolated git branch. The orchestrator tracks WORKSPACE_PATH and PHASE_BRANCH (phase-level) plus WORKTREE_PATH per plan (plan-level). Total overhead: approximately 2-3% of orchestrator context.
 </worktree_context>
 </context_efficiency>
 

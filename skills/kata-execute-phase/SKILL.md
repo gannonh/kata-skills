@@ -32,14 +32,12 @@ Phase: $ARGUMENTS
 
 <process>
 
-**Script invocation rule.** Code blocks reference scripts with paths relative to this SKILL.md (e.g., `"./scripts/find-phase.sh"`). Resolve these to absolute paths. Run scripts from the project directory (where `.planning/` lives). If you must run from a different directory, pass the project root via environment variable: `KATA_PROJECT_ROOT=/path/to/project bash "/path/to/script.sh" args`.
-
 0. **Resolve Model Profile**
 
 Read model profile for agent spawning:
 
 ```bash
-MODEL_PROFILE=$(bash "../kata-configure-settings/scripts/read-config.sh" "model_profile" "balanced")
+MODEL_PROFILE=$(node scripts/kata-lib.cjs read-config "model_profile" "balanced")
 ```
 
 Default to "balanced" if not set.
@@ -49,9 +47,9 @@ Default to "balanced" if not set.
 Read workflow config for executor injection:
 
 ```bash
-EXEC_POST_TASK_CMD=$(bash "../kata-configure-settings/scripts/read-pref.sh" "workflows.execute-phase.post_task_command" "")
-EXEC_COMMIT_STYLE=$(bash "../kata-configure-settings/scripts/read-pref.sh" "workflows.execute-phase.commit_style" "conventional")
-EXEC_COMMIT_SCOPE_FMT=$(bash "../kata-configure-settings/scripts/read-pref.sh" "workflows.execute-phase.commit_scope_format" "{phase}-{plan}")
+EXEC_POST_TASK_CMD=$(node scripts/kata-lib.cjs read-pref "workflows.execute-phase.post_task_command" "")
+EXEC_COMMIT_STYLE=$(node scripts/kata-lib.cjs read-pref "workflows.execute-phase.commit_style" "conventional")
+EXEC_COMMIT_SCOPE_FMT=$(node scripts/kata-lib.cjs read-pref "workflows.execute-phase.commit_scope_format" "{phase}-{plan}")
 ```
 
 Store these three variables for injection into executor prompts in the `<wave_execution>` Task() calls.
@@ -59,8 +57,8 @@ Store these three variables for injection into executor prompts in the `<wave_ex
 0.6. **Read GitHub Config**
 
 ```bash
-GITHUB_ENABLED=$(bash "../kata-configure-settings/scripts/read-config.sh" "github.enabled" "false")
-ISSUE_MODE=$(bash "../kata-configure-settings/scripts/read-config.sh" "github.issue_mode" "never")
+GITHUB_ENABLED=$(node scripts/kata-lib.cjs read-config "github.enabled" "false")
+ISSUE_MODE=$(node scripts/kata-lib.cjs read-config "github.issue_mode" "never")
 ```
 
 Store for use in PR creation and issue checkbox updates.
@@ -70,8 +68,8 @@ Store for use in PR creation and issue checkbox updates.
 Read worktree and PR workflow configuration for conditional lifecycle:
 
 ```bash
-WORKTREE_ENABLED=$(bash "../kata-configure-settings/scripts/read-config.sh" "worktree.enabled" "false")
-PR_WORKFLOW=$(bash "../kata-configure-settings/scripts/read-config.sh" "pr_workflow" "false")
+WORKTREE_ENABLED=$(node scripts/kata-lib.cjs read-config "worktree.enabled" "false")
+PR_WORKFLOW=$(node scripts/kata-lib.cjs read-config "pr_workflow" "false")
 ```
 
 Store `WORKTREE_ENABLED` and `PR_WORKFLOW` for use in steps 1.5, 4, 10, and 10.5. When `WORKTREE_ENABLED=false` (default), plan-level worktree operations are skipped. When `PR_WORKFLOW=false`, all branch/worktree/PR operations are skipped and execution proceeds on the current branch.
@@ -81,6 +79,7 @@ Store `WORKTREE_ENABLED` and `PR_WORKFLOW` for use in steps 1.5, 4, 10, and 10.5
 | Agent                      | quality | balanced | budget |
 | -------------------------- | ------- | -------- | ------ |
 | general-purpose (executor) | opus    | sonnet   | sonnet |
+| general-purpose (mapper)   | haiku   | haiku    | haiku  |
 | kata-verifier              | sonnet  | sonnet   | haiku  |
 | kata-code-reviewer         | opus    | sonnet   | sonnet |
 | kata-\*-analyzer           | sonnet  | sonnet   | haiku  |
@@ -95,7 +94,7 @@ Store resolved models for use in Task calls below.
 
    ```bash
    if [ -f .planning/ROADMAP.md ]; then
-     bash "../kata-doctor/scripts/check-roadmap-format.sh" 2>/dev/null
+     node scripts/kata-lib.cjs check-roadmap 2>/dev/null
      FORMAT_EXIT=$?
 
      if [ $FORMAT_EXIT -eq 1 ]; then
@@ -118,15 +117,15 @@ Store resolved models for use in Task calls below.
 
    ```bash
    # Validate config and template overrides
-   bash "../kata-doctor/scripts/check-config.sh" 2>/dev/null || true
-   bash "../kata-doctor/scripts/check-template-drift.sh" 2>/dev/null || true
+   node scripts/kata-lib.cjs check-config 2>/dev/null || true
+   node scripts/kata-lib.cjs check-template-drift 2>/dev/null || true
    ```
 
 1.1. **Validate phase exists**
 Find phase directory using the discovery script:
 
 ```bash
-bash "./scripts/find-phase.sh" "$PHASE_ARG"
+bash "scripts/find-phase.sh" "$PHASE_ARG"
 ```
 
 Outputs `PHASE_DIR`, `PLAN_COUNT`, and `PHASE_STATE` as key=value pairs. Exit code 1 = not found, 2 = no plans. Parse the output to set these variables for subsequent steps.
@@ -154,7 +153,7 @@ fi
 Create the phase branch FIRST. Uncommitted activation changes from step 1.25 float to the new branch via `git checkout -b`. Then commit on the phase branch (not main — respects branch protection).
 
 ```bash
-if ! BRANCH_OUTPUT=$(bash "./scripts/create-phase-branch.sh" "$PHASE_DIR"); then
+if ! BRANCH_OUTPUT=$(bash "scripts/create-phase-branch.sh" "$PHASE_DIR"); then
   echo "Error: Failed to create phase branch" >&2
   exit 1
 fi
@@ -213,7 +212,7 @@ Kata ► EXECUTING PHASE {X}: {Phase Name}
      ```bash
      if [ "$WORKTREE_ENABLED" = "true" ] && [ "$PR_WORKFLOW" = "true" ]; then
        for plan_num in $WAVE_PLAN_NUMBERS; do
-         WT_OUTPUT=$(bash "./scripts/manage-worktree.sh" create "$PHASE_NUM" "$plan_num" "$PHASE_BRANCH")
+         WT_OUTPUT=$(bash "scripts/manage-worktree.sh" create "$PHASE_NUM" "$plan_num" "$PHASE_BRANCH")
          eval "$WT_OUTPUT"
          # Stores WORKTREE_PATH, WORKTREE_BRANCH, STATUS for each plan
          # Save per-plan: WORKTREE_PATH_${plan_num}=$WORKTREE_PATH
@@ -232,7 +231,7 @@ Kata ► EXECUTING PHASE {X}: {Phase Name}
      ```bash
      if [ "$WORKTREE_ENABLED" = "true" ] && [ "$PR_WORKFLOW" = "true" ]; then
        for plan_num in $WAVE_PLAN_NUMBERS; do
-         MERGE_OUTPUT=$(bash "./scripts/manage-worktree.sh" merge "$PHASE_NUM" "$plan_num" "$PHASE_BRANCH" "$WORKSPACE_PATH")
+         MERGE_OUTPUT=$(bash "scripts/manage-worktree.sh" merge "$PHASE_NUM" "$plan_num" "$PHASE_BRANCH" "$WORKSPACE_PATH")
          eval "$MERGE_OUTPUT"
          if [ "$STATUS" != "merged" ]; then
            echo "Warning: Worktree merge failed for plan $plan_num" >&2
@@ -269,7 +268,7 @@ Kata ► EXECUTING PHASE {X}: {Phase Name}
        fi
      done
 
-     bash "./scripts/update-issue-checkboxes.sh" "$PHASE" "$PHASE_DIR" $COMPLETED_PLANS_IN_WAVE
+     bash "scripts/update-issue-checkboxes.sh" "$PHASE" "$PHASE_DIR" $COMPLETED_PLANS_IN_WAVE
      ```
 
      This update happens ONCE per wave (after all plans in wave complete), not per-plan, avoiding race conditions.
@@ -293,7 +292,7 @@ Kata ► EXECUTING PHASE {X}: {Phase Name}
        # Push from workspace/ (already on the phase branch)
        git push -u origin "$PHASE_BRANCH" 2>/dev/null || \
          git push -u --force-with-lease origin "$PHASE_BRANCH" 2>/dev/null
-       if ! PR_OUTPUT=$(bash "./scripts/create-draft-pr.sh" "$PHASE_DIR" "$PHASE_BRANCH"); then
+       if ! PR_OUTPUT=$(bash "scripts/create-draft-pr.sh" "$PHASE_DIR" "$PHASE_BRANCH"); then
          echo "Error: Failed to create draft PR" >&2
        else
          eval "$PR_OUTPUT"
@@ -349,7 +348,7 @@ TEST_SCRIPT=$(cat package.json 2>/dev/null | grep -o '"test"[[:space:]]*:[[:spac
 
 7. **Verify phase goal (automated codebase check — NOT user-facing UAT)**
 
-   Check config: `WORKFLOW_VERIFIER=$(bash "../kata-configure-settings/scripts/read-config.sh" "workflow.verifier" "true")`
+   Check config: `WORKFLOW_VERIFIER=$(node scripts/kata-lib.cjs read-config "workflow.verifier" "true")`
 
    **If `workflow.verifier` is `false`:** Skip to step 8 (treat as passed).
 
@@ -359,6 +358,12 @@ TEST_SCRIPT=$(cat package.json 2>/dev/null | grep -o '"test"[[:space:]]*:[[:spac
 
    ```
    verifier_instructions_content = Read("references/verifier-instructions.md")
+   ```
+
+   Read intel summary for convention compliance checking:
+
+   ```
+   intel_summary_content = Read(".planning/intel/summary.md") if exists, else ""
    ```
 
    Read the phase goal from ROADMAP.md and all SUMMARY.md files in the phase directory.
@@ -380,6 +385,9 @@ TEST_SCRIPT=$(cat package.json 2>/dev/null | grep -o '"test"[[:space:]]*:[[:spac
 
    Plan summaries:
    {summary contents from phase directory}
+
+   Codebase conventions (if available):
+   {intel_summary_content}
 
    Return your verification results as structured text. Do NOT write any files.",
      subagent_type="general-purpose",
@@ -403,6 +411,153 @@ TEST_SCRIPT=$(cat package.json 2>/dev/null | grep -o '"test"[[:space:]]*:[[:spac
    - `passed` → continue to step 8
    - `human_needed` → present items to user, get approval or feedback
    - `gaps_found` → present gaps, offer `/kata-plan-phase {X} --gaps`
+
+7.25. **Update codebase index (smart scan)**
+
+If `.planning/intel/index.json` exists or `.planning/codebase/` directory exists, run staleness detection, determine scan mode, update summary, and check conventions. All operations are non-blocking.
+
+```bash
+if [ -f ".planning/intel/index.json" ] || [ -d ".planning/codebase" ]; then
+  # Locate scan script
+  SCAN_SCRIPT=""
+  [ -f "scripts/scan-codebase.cjs" ] && SCAN_SCRIPT="scripts/scan-codebase.cjs"
+  [ -z "$SCAN_SCRIPT" ] && SCAN_SCRIPT=$(find skills/kata-map-codebase/scripts -name "scan-codebase.cjs" -type f 2>/dev/null | head -1)
+
+  # --- Staleness detection (MAINT-01) ---
+  STALE_SCRIPT=""
+  [ -f "scripts/detect-stale-intel.cjs" ] && STALE_SCRIPT="scripts/detect-stale-intel.cjs"
+  [ -z "$STALE_SCRIPT" ] && STALE_SCRIPT=$(find skills/kata-map-codebase/scripts -name "detect-stale-intel.cjs" -type f 2>/dev/null | head -1)
+
+  STALE_COUNT=0
+  STALE_PCT="0"
+  OLDEST_COMMIT=""
+  if [ -n "$STALE_SCRIPT" ]; then
+    STALE_JSON=$(node "$STALE_SCRIPT" 2>/dev/null || echo "{}")
+    STALE_COUNT=$(echo "$STALE_JSON" | grep -o '"staleCount"[[:space:]]*:[[:space:]]*[0-9]*' | grep -o '[0-9]*' || echo "0")
+    STALE_PCT=$(echo "$STALE_JSON" | grep -o '"stalePct"[[:space:]]*:[[:space:]]*[0-9.]*' | grep -o '[0-9.]*' || echo "0")
+    if [ "${STALE_COUNT:-0}" -gt 0 ] 2>/dev/null; then
+      OLDEST_COMMIT=$(echo "$STALE_JSON" | grep -o '"oldestStaleCommit"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"oldestStaleCommit"[[:space:]]*:[[:space:]]*"//; s/"$//')
+    fi
+
+    # --- Brownfield staleness fields (MAINT-02 gap closure) ---
+    BROWNFIELD_STALE="false"
+    BROWNFIELD_STALE=$(echo "$STALE_JSON" | node -e "try{const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));console.log(d.brownfieldDocStale===true?'true':'false')}catch{console.log('false')}" 2>/dev/null || echo "false")
+    BROWNFIELD_ANALYSIS_DATE=$(echo "$STALE_JSON" | node -e "try{const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));console.log(d.brownfieldAnalysisDate||'')}catch{console.log('')}" 2>/dev/null || echo "")
+  fi
+
+  # --- Brownfield doc auto-refresh (MAINT-02 gap closure) ---
+  if [ "$BROWNFIELD_STALE" = "true" ]; then
+    echo "Brownfield docs stale (Analysis Date: $BROWNFIELD_ANALYSIS_DATE). Triggering auto-refresh..." >&2
+```
+
+**Read mapper instructions** from the kata-map-codebase skill. Use the Read tool:
+
+- Plugin mode: `${CLAUDE_PLUGIN_ROOT}/skills/kata-map-codebase/references/codebase-mapper-instructions.md`
+- Skills mode: `skills/kata-map-codebase/references/codebase-mapper-instructions.md`
+
+Store the content as `mapper_instructions_content`.
+
+**Spawn 4 mapper agents in parallel via Task():**
+
+```
+Task(prompt="<agent-instructions>\n{mapper_instructions_content}\n</agent-instructions>\n\nFocus area: tech\n\nMap the codebase for the tech focus area. Write STACK.md and INTEGRATIONS.md to .planning/codebase/.\n\nProject root: {project_root}", subagent_type="general-purpose", model="haiku")
+Task(prompt="<agent-instructions>\n{mapper_instructions_content}\n</agent-instructions>\n\nFocus area: arch\n\nMap the codebase for the arch focus area. Write ARCHITECTURE.md and STRUCTURE.md to .planning/codebase/.\n\nProject root: {project_root}", subagent_type="general-purpose", model="haiku")
+Task(prompt="<agent-instructions>\n{mapper_instructions_content}\n</agent-instructions>\n\nFocus area: quality\n\nMap the codebase for the quality focus area. Write CONVENTIONS.md and TESTING.md to .planning/codebase/.\n\nProject root: {project_root}", subagent_type="general-purpose", model="haiku")
+Task(prompt="<agent-instructions>\n{mapper_instructions_content}\n</agent-instructions>\n\nFocus area: concerns\n\nMap the codebase for the concerns focus area. Write CONCERNS.md to .planning/codebase/.\n\nProject root: {project_root}", subagent_type="general-purpose", model="haiku")
+```
+
+All 4 run in parallel. Task tool blocks until complete.
+
+**After mapper agents complete, run intel pipeline:**
+
+```bash
+    # Run generate-intel.js (doc-derived summary)
+    GENERATE_SCRIPT=""
+    [ -f "scripts/generate-intel.js" ] && GENERATE_SCRIPT="scripts/generate-intel.js"
+    [ -z "$GENERATE_SCRIPT" ] && GENERATE_SCRIPT=$(find skills/kata-map-codebase/scripts -name "generate-intel.js" -type f 2>/dev/null | head -1)
+    if [ -n "$GENERATE_SCRIPT" ]; then
+      node "$GENERATE_SCRIPT" 2>/dev/null || true
+    fi
+
+    # Run scan-codebase.cjs (full scan, overwrites code-derived artifacts)
+    if [ -n "$SCAN_SCRIPT" ]; then
+      node "$SCAN_SCRIPT" 2>/dev/null || true
+    fi
+
+    # Stage refreshed brownfield docs and intel artifacts
+    git add .planning/codebase/ .planning/intel/ 2>/dev/null || true
+
+    SCAN_RAN="true"
+    echo "Brownfield auto-refresh complete." >&2
+  fi
+```
+
+```bash
+  # --- Unified scan decision tree (greenfield / staleness / incremental) ---
+  TOTAL_FILES=$(node -e "try{const j=JSON.parse(require('fs').readFileSync('.planning/intel/index.json','utf8')); console.log(j.stats?.totalFiles ?? 0)}catch{console.log(0)}" 2>/dev/null || echo "0")
+
+  SCAN_RAN=${SCAN_RAN:-"false"}
+  if [ "$SCAN_RAN" != "true" ] && [ -n "$SCAN_SCRIPT" ]; then
+    if [ "$TOTAL_FILES" -eq 0 ]; then
+      # Greenfield first population: full scan
+      node "$SCAN_SCRIPT" 2>/dev/null || true
+      SCAN_RAN="true"
+    elif [ "${STALE_COUNT:-0}" -gt 0 ] 2>/dev/null && [ -n "$OLDEST_COMMIT" ]; then
+      # Staleness-triggered incremental re-scan (MAINT-02)
+      echo "Detected $STALE_COUNT stale intel entries, re-scanning from $OLDEST_COMMIT..." >&2
+      node "$SCAN_SCRIPT" --incremental --since "$OLDEST_COMMIT" 2>/dev/null || true
+      SCAN_RAN="true"
+    else
+      # Phase-start incremental scan
+      PHASE_START_COMMIT=$(git log --oneline --all --grep="activate phase" --grep="${PHASE_NUM}" --all-match --format="%H" | tail -1)
+      if [ -n "$PHASE_START_COMMIT" ]; then
+        node "$SCAN_SCRIPT" --incremental --since "$PHASE_START_COMMIT" 2>/dev/null || true
+        SCAN_RAN="true"
+      fi
+    fi
+  fi
+
+  # --- Summary update (only when a scan ran) ---
+  if [ "$SCAN_RAN" = "true" ]; then
+    SUMMARY_SCRIPT=""
+    [ -f "scripts/update-intel-summary.cjs" ] && SUMMARY_SCRIPT="scripts/update-intel-summary.cjs"
+    [ -z "$SUMMARY_SCRIPT" ] && SUMMARY_SCRIPT=$(find skills/kata-execute-phase/scripts -name "update-intel-summary.cjs" -type f 2>/dev/null | head -1)
+    if [ -n "$SUMMARY_SCRIPT" ]; then
+      node "$SUMMARY_SCRIPT" 2>/dev/null || true
+    fi
+  fi
+
+  # --- Doc gardening warning (only if auto-refresh did not run) ---
+  if [ "$BROWNFIELD_STALE" != "true" ] && [ -d ".planning/codebase/" ] && [ -n "$STALE_PCT" ]; then
+    STALE_HIGH=$(node -e "console.log(Number('${STALE_PCT}') > 0.3 ? 'yes' : 'no')" 2>/dev/null || echo "no")
+    if [ "$STALE_HIGH" = "yes" ]; then
+      echo "Warning: >30% of intel is stale (stalePct=$STALE_PCT). Recommend running /kata-map-codebase to refresh codebase knowledge." >&2
+    fi
+  fi
+
+  # --- Convention enforcement (MAINT-03) ---
+  CONV_SCRIPT=""
+  [ -f "scripts/check-conventions.cjs" ] && CONV_SCRIPT="scripts/check-conventions.cjs"
+  [ -z "$CONV_SCRIPT" ] && CONV_SCRIPT=$(find skills/kata-execute-phase/scripts -name "check-conventions.cjs" -type f 2>/dev/null | head -1)
+
+  if [ -n "$CONV_SCRIPT" ]; then
+    PHASE_START_COMMIT=${PHASE_START_COMMIT:-$(git log --oneline --all --grep="activate phase" --grep="${PHASE_NUM}" --all-match --format="%H" | tail -1)}
+    if [ -n "$PHASE_START_COMMIT" ]; then
+      CHANGED_FILES=$(git diff --name-only "$PHASE_START_COMMIT..HEAD" 2>/dev/null | tr '\n' ' ')
+      if [ -n "$CHANGED_FILES" ]; then
+        CONV_JSON=$(node "$CONV_SCRIPT" --files $CHANGED_FILES 2>/dev/null || echo "{}")
+        CONV_VIOLATIONS=$(echo "$CONV_JSON" | node -e "try{const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));console.log((d.violations||[]).length)}catch{console.log(0)}" 2>/dev/null || echo "0")
+        if [ "${CONV_VIOLATIONS:-0}" -gt 0 ] 2>/dev/null; then
+          echo "Convention violations detected ($CONV_VIOLATIONS):" >&2
+          echo "$CONV_JSON" | node -e "try{const d=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8'));(d.violations||[]).forEach(v=>console.error('  - '+v.file+': '+v.export+' (found '+v.found+', expected '+v.expected+')'))}catch{}" 2>/dev/null || true
+        fi
+      fi
+    fi
+  fi
+fi
+```
+
+Non-blocking: all scan, staleness, summary, and convention operations use `|| true` or `2>/dev/null`. Failures never block phase completion.
 
 7.5. **Validate completion and move to completed**
 
@@ -495,7 +650,7 @@ fi
 
       if [ -z "$PR_NUMBER" ]; then
         # Draft PR creation failed earlier — create PR now
-        PR_OUTPUT=$(bash "./scripts/create-draft-pr.sh" "$PHASE_DIR" "$PHASE_BRANCH" 2>&1) || true
+        PR_OUTPUT=$(bash "scripts/create-draft-pr.sh" "$PHASE_DIR" "$PHASE_BRANCH" 2>&1) || true
         PR_NUMBER=$(gh pr list --head "$PHASE_BRANCH" --json number --jq '.[0].number' 2>/dev/null)
       fi
 
@@ -514,7 +669,7 @@ fi
 
     **Note:** Workspace cleanup happens after PR merge, not here. The workspace stays on the phase branch so the PR remains valid. Users clean up after merge via:
     ```bash
-    bash "./scripts/manage-worktree.sh" cleanup-phase "$WORKSPACE_PATH" "$PHASE_BRANCH"
+    bash "scripts/manage-worktree.sh" cleanup-phase "$WORKSPACE_PATH" "$PHASE_BRANCH"
     ```
 
 11. **Offer next steps** - Route to next action (see `<offer_next>`)
@@ -560,7 +715,7 @@ Goal verified ✓
 **Also available:**
 
 - `/kata-review-pull-requests` — automated code review
-  - {If PR_WORKFLOW and WORKTREE_ENABLED: `gh pr merge --merge` then `git -C main pull` and `bash skills/kata-execute-phase/scripts/manage-worktree.sh cleanup-phase workspace $PHASE_BRANCH` — merge PR (worktree-safe)}
+  - {If PR_WORKFLOW and WORKTREE_ENABLED: `gh pr merge --merge` then `git -C main pull` and `bash "scripts/manage-worktree.sh" cleanup-phase workspace $PHASE_BRANCH` — merge PR (worktree-safe)}
   - {If PR_WORKFLOW and not WORKTREE_ENABLED: `gh pr merge --merge --delete-branch` then `git checkout main && git pull` — merge PR directly}
 - `/kata-discuss-phase {Z+1}` — gather context for next phase (optional)
 - `/kata-plan-phase {Z+1}` — plan next phase directly
@@ -596,7 +751,7 @@ All phase goals verified ✓
 **Also available:**
 
 - `/kata-review-pull-requests` — automated code review
-  - {If PR_WORKFLOW and WORKTREE_ENABLED: `gh pr merge --merge` then `git -C main pull` and `bash skills/kata-execute-phase/scripts/manage-worktree.sh cleanup-phase workspace $PHASE_BRANCH` — merge PR (worktree-safe)}
+  - {If PR_WORKFLOW and WORKTREE_ENABLED: `gh pr merge --merge` then `git -C main pull` and `bash "scripts/manage-worktree.sh" cleanup-phase workspace $PHASE_BRANCH` — merge PR (worktree-safe)}
   - {If PR_WORKFLOW and not WORKTREE_ENABLED: `gh pr merge --merge --delete-branch` then `git checkout main && git pull` — merge PR directly}
 - `/kata-audit-milestone` — skip UAT, audit directly
 - `/kata-complete-milestone` — skip audit, archive directly
@@ -660,6 +815,7 @@ Before spawning, read file contents using Read tool. The `@` syntax does not wor
 - Each plan file in the wave (e.g., `{plan_01_path}`, `{plan_02_path}`, etc.)
 - `.planning/STATE.md`
 - `references/executor-instructions.md` (relative to skill base directory) — store as `executor_instructions_content`
+- `.planning/intel/summary.md` (if exists) — store as `intel_summary_content`
 
 **Working directory injection (two cases):**
 
@@ -679,12 +835,20 @@ fi
 
 Then append `$WORKING_DIR_BLOCK` to the Task() prompt template for each plan.
 
+```bash
+# Build codebase intelligence block (empty string if no intel)
+INTEL_BLOCK=""
+if [ -f ".planning/intel/summary.md" ]; then
+  INTEL_BLOCK="\n<codebase_intelligence>\n${intel_summary_content}\n</codebase_intelligence>"
+fi
+```
+
 Spawn all plans in a wave with a single message containing multiple Task calls, with inlined content:
 
 ```
-Task(prompt="<agent-instructions>\n{executor_instructions_content}\n</agent-instructions>\n\nExecute plan at {plan_01_path}\n\n<plan>\n{plan_01_content}\n</plan>\n\n<project_state>\n{state_content}\n</project_state>\n\n<workflow_config>\npost_task_command: {EXEC_POST_TASK_CMD}\ncommit_style: {EXEC_COMMIT_STYLE}\ncommit_scope_format: {EXEC_COMMIT_SCOPE_FMT}\n</workflow_config>{WORKING_DIR_BLOCK}", subagent_type="general-purpose", model="{executor_model}")
-Task(prompt="<agent-instructions>\n{executor_instructions_content}\n</agent-instructions>\n\nExecute plan at {plan_02_path}\n\n<plan>\n{plan_02_content}\n</plan>\n\n<project_state>\n{state_content}\n</project_state>\n\n<workflow_config>\npost_task_command: {EXEC_POST_TASK_CMD}\ncommit_style: {EXEC_COMMIT_STYLE}\ncommit_scope_format: {EXEC_COMMIT_SCOPE_FMT}\n</workflow_config>{WORKING_DIR_BLOCK}", subagent_type="general-purpose", model="{executor_model}")
-Task(prompt="<agent-instructions>\n{executor_instructions_content}\n</agent-instructions>\n\nExecute plan at {plan_03_path}\n\n<plan>\n{plan_03_content}\n</plan>\n\n<project_state>\n{state_content}\n</project_state>\n\n<workflow_config>\npost_task_command: {EXEC_POST_TASK_CMD}\ncommit_style: {EXEC_COMMIT_STYLE}\ncommit_scope_format: {EXEC_COMMIT_SCOPE_FMT}\n</workflow_config>{WORKING_DIR_BLOCK}", subagent_type="general-purpose", model="{executor_model}")
+Task(prompt="<agent-instructions>\n{executor_instructions_content}\n</agent-instructions>\n\nExecute plan at {plan_01_path}\n\n<plan>\n{plan_01_content}\n</plan>\n\n<project_state>\n{state_content}\n</project_state>\n\n<workflow_config>\npost_task_command: {EXEC_POST_TASK_CMD}\ncommit_style: {EXEC_COMMIT_STYLE}\ncommit_scope_format: {EXEC_COMMIT_SCOPE_FMT}\n</workflow_config>{WORKING_DIR_BLOCK}{INTEL_BLOCK}", subagent_type="general-purpose", model="{executor_model}")
+Task(prompt="<agent-instructions>\n{executor_instructions_content}\n</agent-instructions>\n\nExecute plan at {plan_02_path}\n\n<plan>\n{plan_02_content}\n</plan>\n\n<project_state>\n{state_content}\n</project_state>\n\n<workflow_config>\npost_task_command: {EXEC_POST_TASK_CMD}\ncommit_style: {EXEC_COMMIT_STYLE}\ncommit_scope_format: {EXEC_COMMIT_SCOPE_FMT}\n</workflow_config>{WORKING_DIR_BLOCK}{INTEL_BLOCK}", subagent_type="general-purpose", model="{executor_model}")
+Task(prompt="<agent-instructions>\n{executor_instructions_content}\n</agent-instructions>\n\nExecute plan at {plan_03_path}\n\n<plan>\n{plan_03_content}\n</plan>\n\n<project_state>\n{state_content}\n</project_state>\n\n<workflow_config>\npost_task_command: {EXEC_POST_TASK_CMD}\ncommit_style: {EXEC_COMMIT_STYLE}\ncommit_scope_format: {EXEC_COMMIT_SCOPE_FMT}\n</workflow_config>{WORKING_DIR_BLOCK}{INTEL_BLOCK}", subagent_type="general-purpose", model="{executor_model}")
 ```
 
 All three run in parallel. Task tool blocks until all complete.

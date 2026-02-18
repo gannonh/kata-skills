@@ -13,6 +13,7 @@ This is the most leveraged moment in any project. Deep questioning here means be
 **Creates:**
 - `.planning/PROJECT.md` — project context
 - `.planning/config.json` — workflow preferences
+- `.planning/intel/` — empty v2 intel scaffolding (index.json, conventions.json, summary.md)
 
 **After this command:** Run `/kata-add-milestone` to define your first milestone.
 
@@ -27,8 +28,6 @@ This is the most leveraged moment in any project. Deep questioning here means be
 </execution_context>
 
 <process>
-
-**Script invocation rule.** Code blocks reference scripts with paths relative to this SKILL.md (e.g., `"../kata-configure-settings/scripts/read-config.sh"`). Resolve these to absolute paths. Run scripts from the project directory (where `.planning/` lives). If you must run from a different directory, pass the project root via environment variable: `KATA_PROJECT_ROOT=/path/to/project bash "/path/to/script.sh" args`.
 
 ## Phase 1: Setup
 
@@ -164,6 +163,13 @@ touch .planning/phases/pending/.gitkeep .planning/phases/active/.gitkeep .planni
 
 This creates `.planning/`, `.planning/phases/`, the three state subdirectories, and `.gitkeep` files so git tracks them. Run this BEFORE writing any files.
 
+**Scaffold empty intel for greenfield progressive capture:**
+
+```bash
+# Scaffold empty intel for greenfield progressive capture
+node "scripts/scaffold-intel.cjs" 2>/dev/null || echo "Warning: Intel scaffolding skipped"
+```
+
 Synthesize all context into `.planning/PROJECT.md` using the template from `@./references/project-template.md`.
 
 **For greenfield projects:**
@@ -242,7 +248,7 @@ Do not compress. Capture everything gathered.
 **Commit PROJECT.md:**
 
 ```bash
-git add .planning/PROJECT.md .planning/phases/pending/.gitkeep .planning/phases/active/.gitkeep .planning/phases/completed/.gitkeep
+git add .planning/PROJECT.md .planning/phases/pending/.gitkeep .planning/phases/active/.gitkeep .planning/phases/completed/.gitkeep .planning/intel/
 git commit -m "$(cat <<'EOF'
 docs: initialize project
 
@@ -479,7 +485,7 @@ EOF
 Call setup-worktrees.sh to convert to bare repo + worktree layout:
 
 ```bash
-WORKTREE_OUTPUT=$(bash "../kata-configure-settings/scripts/setup-worktrees.sh" 2>&1) || WORKTREE_FAILED=true
+WORKTREE_OUTPUT=$(bash "scripts/setup-worktrees.sh" 2>&1) || WORKTREE_FAILED=true
 echo "$WORKTREE_OUTPUT"
 ```
 
@@ -491,19 +497,19 @@ Read the error output and fix the underlying issue:
 | --- | --- |
 | "uncommitted changes" | `git add -A && git commit -m "chore: commit pending changes before worktree setup"` |
 | "Not a git repository" | `git init && git add -A && git commit -m "chore: initial commit"` |
-| "pr_workflow must be true" | `bash "../kata-configure-settings/scripts/set-config.sh" "pr_workflow" "true"` |
+| "pr_workflow must be true" | `node scripts/kata-lib.cjs set-config "pr_workflow" "true"` |
 
 After applying the fix, retry:
 
 ```bash
-WORKTREE_OUTPUT=$(bash "../kata-configure-settings/scripts/setup-worktrees.sh" 2>&1) || WORKTREE_FAILED=true
+WORKTREE_OUTPUT=$(bash "scripts/setup-worktrees.sh" 2>&1) || WORKTREE_FAILED=true
 echo "$WORKTREE_OUTPUT"
 ```
 
 **If setup still fails after retries**, revert and warn the user:
 
 ```bash
-bash "../kata-configure-settings/scripts/set-config.sh" "worktree.enabled" "false"
+node scripts/kata-lib.cjs set-config "worktree.enabled" "false"
 ```
 
 Display the error output and tell the user worktree setup failed, their preference was reverted to false, and they can enable it later via `/kata-configure-settings`.
@@ -699,6 +705,9 @@ MISSING=""
 [ -f .planning/phases/pending/.gitkeep ] || MISSING="${MISSING}\n- .planning/phases/pending/.gitkeep"
 [ -f .planning/phases/active/.gitkeep ] || MISSING="${MISSING}\n- .planning/phases/active/.gitkeep"
 [ -f .planning/phases/completed/.gitkeep ] || MISSING="${MISSING}\n- .planning/phases/completed/.gitkeep"
+[ -f .planning/intel/index.json ] || MISSING="${MISSING}\n- .planning/intel/index.json"
+[ -f .planning/intel/conventions.json ] || MISSING="${MISSING}\n- .planning/intel/conventions.json"
+[ -f .planning/intel/summary.md ] || MISSING="${MISSING}\n- .planning/intel/summary.md"
 if [ -n "$MISSING" ]; then
   echo "MISSING ARTIFACTS:${MISSING}"
 else
@@ -721,6 +730,7 @@ fi
 | ----------- | ---------------------------- |
 | Project     | `.planning/PROJECT.md`       |
 | Config      | `.planning/config.json`      |
+| Intel       | `.planning/intel/`           |
 
 Ready for milestone planning ✓
 
@@ -778,7 +788,9 @@ Settings for `main`:
 
 - `.planning/PROJECT.md`
 - `.planning/config.json`
-- `.planning/preferences.json`
+- `.planning/intel/index.json`
+- `.planning/intel/conventions.json`
+- `.planning/intel/summary.md`
 
 </output>
 
@@ -791,7 +803,8 @@ Settings for `main`:
 - [ ] Deep questioning completed (threads followed, not rushed)
 - [ ] PROJECT.md captures full context → **committed**
 - [ ] config.json has mode, depth, commit_docs, pr_workflow, github → **committed**
-- [ ] Self-validation passed (all artifacts exist)
+- [ ] `.planning/intel/` scaffolded with empty v2 schema (index.json, conventions.json, summary.md)
+- [ ] Self-validation passed (all artifacts exist, including intel files)
 - [ ] User knows next step is `/kata-add-milestone`
 
 **Atomic commits:** PROJECT.md and config.json are committed. If context is lost, artifacts persist.

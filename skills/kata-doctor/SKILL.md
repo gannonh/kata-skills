@@ -62,7 +62,7 @@ Running diagnostics...
 Run format detection:
 
 ```bash
-bash ./scripts/check-roadmap-format.sh 2>/dev/null
+node scripts/kata-lib.cjs check-roadmap 2>/dev/null
 FORMAT_EXIT=$?
 ```
 
@@ -136,7 +136,7 @@ Use Write tool to update `.planning/ROADMAP.md` with new format.
 **Step 5: Verify migration**
 
 ```bash
-bash ./scripts/check-roadmap-format.sh 2>/dev/null
+node scripts/kata-lib.cjs check-roadmap 2>/dev/null
 VERIFY_EXIT=$?
 ```
 
@@ -157,7 +157,7 @@ Display the file for user review.
 **Step 6: Commit (if enabled)**
 
 ```bash
-COMMIT_PLANNING_DOCS=$(bash "../kata-configure-settings/scripts/read-config.sh" "commit_docs" "true")
+COMMIT_PLANNING_DOCS=$(node scripts/kata-lib.cjs read-config "commit_docs" "true")
 git check-ignore -q .planning 2>/dev/null && COMMIT_PLANNING_DOCS=false
 ```
 
@@ -312,7 +312,7 @@ done | grep -oE '^[0-9]+' | sort -n | uniq -d)
 **Step 8: Commit**
 
 ```bash
-COMMIT_PLANNING_DOCS=$(bash "../kata-configure-settings/scripts/read-config.sh" "commit_docs" "true")
+COMMIT_PLANNING_DOCS=$(node scripts/kata-lib.cjs read-config "commit_docs" "true")
 git check-ignore -q .planning 2>/dev/null && COMMIT_PLANNING_DOCS=false
 ```
 

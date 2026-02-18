@@ -76,8 +76,8 @@ Only read files for applicable review aspects. Also read:
 ## 6. Resolve Model Profile
 
 ```bash
-MODEL_PROFILE=$(bash "../kata-configure-settings/scripts/read-config.sh" "model_profile" "balanced")
-WORKTREE_ENABLED=$(bash "../kata-configure-settings/scripts/read-config.sh" "worktree.enabled" "false")
+MODEL_PROFILE=$(node scripts/kata-lib.cjs read-config "model_profile" "balanced")
+WORKTREE_ENABLED=$(node scripts/kata-lib.cjs read-config "worktree.enabled" "false")
 ```
 
 Default to "balanced" if not set.
@@ -283,7 +283,7 @@ Then update local state:
 if [ "$WORKTREE_ENABLED" = "true" ]; then
   # Bare repo layout: update main/ worktree, reset workspace/ to workspace-base
   git -C main pull
-  bash "skills/kata-execute-phase/scripts/manage-worktree.sh" cleanup-phase workspace "$PHASE_BRANCH"
+  bash "scripts/manage-worktree.sh" cleanup-phase workspace "$PHASE_BRANCH"
 else
   git checkout main && git pull
 fi
